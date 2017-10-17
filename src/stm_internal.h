@@ -324,10 +324,19 @@ typedef struct w_set {                  /* Write set */
 #endif /* USE_BLOOM_FILTER */
 } w_set_t;
 
-typedef struct cb_entry {               /* Callback entry */
-  void (*f)(void *);                    /* Function */
-  void *arg;                            /* Argument to be passed to function */
-} cb_entry_t;
+struct stm_tx;
+
+typedef struct cb_entry1 {              /* Callback entry */
+  const void (*f)(struct stm_tx *,
+                  const void *);        /* Function */
+  const void *arg;                      /* Argument to be passed to function */
+} cb_entry1_t;
+
+typedef struct cb_entry2 {              /* Callback entry */
+  const void (*f)(const struct stm_tx *,
+                  const void *);        /* Function */
+  const void *arg;                      /* Argument to be passed to function */
+} cb_entry2_t;
 
 typedef struct stm_tx {                 /* Transaction descriptor */
   JMP_BUF env;                          /* Environment for setjmp/longjmp */
@@ -384,17 +393,17 @@ typedef struct {
   volatile stm_word_t gclock[512 / sizeof(stm_word_t)] ALIGNED;
   unsigned int nb_specific;             /* Number of specific slots used (<= MAX_SPECIFIC) */
   unsigned int nb_init_cb;
-  cb_entry_t init_cb[MAX_CB];           /* Init thread callbacks */
+  cb_entry1_t init_cb[MAX_CB];          /* Init thread callbacks */
   unsigned int nb_exit_cb;
-  cb_entry_t exit_cb[MAX_CB];           /* Exit thread callbacks */
+  cb_entry2_t exit_cb[MAX_CB];          /* Exit thread callbacks */
   unsigned int nb_start_cb;
-  cb_entry_t start_cb[MAX_CB];          /* Start callbacks */
+  cb_entry2_t start_cb[MAX_CB];         /* Start callbacks */
   unsigned int nb_precommit_cb;
-  cb_entry_t precommit_cb[MAX_CB];      /* Commit callbacks */
+  cb_entry2_t precommit_cb[MAX_CB];     /* Commit callbacks */
   unsigned int nb_commit_cb;
-  cb_entry_t commit_cb[MAX_CB];         /* Commit callbacks */
+  cb_entry2_t commit_cb[MAX_CB];        /* Commit callbacks */
   unsigned int nb_abort_cb;
-  cb_entry_t abort_cb[MAX_CB];          /* Abort callbacks */
+  cb_entry2_t abort_cb[MAX_CB];         /* Abort callbacks */
   unsigned int initialized;             /* Has the library been initialized? */
 #ifdef IRREVOCABLE_ENABLED
   volatile stm_word_t irrevocable;      /* Irrevocability status */
@@ -1048,7 +1057,7 @@ stm_rollback(stm_tx_t *tx, stm_tx_abort_t reason)
   if (likely(_tinystm.nb_abort_cb != 0)) {
     unsigned int cb;
     for (cb = 0; cb < _tinystm.nb_abort_cb; cb++)
-      _tinystm.abort_cb[cb].f(_tinystm.abort_cb[cb].arg);
+      _tinystm.abort_cb[cb].f(tx, _tinystm.abort_cb[cb].arg);
   }
 
 #if CM == CM_BACKOFF
@@ -1293,7 +1302,7 @@ int_stm_init_thread(void)
   if (likely(_tinystm.nb_init_cb != 0)) {
     unsigned int cb;
     for (cb = 0; cb < _tinystm.nb_init_cb; cb++)
-      _tinystm.init_cb[cb].f(_tinystm.init_cb[cb].arg);
+      _tinystm.init_cb[cb].f(tx, _tinystm.init_cb[cb].arg);
   }
 
   return tx;
@@ -1316,7 +1325,7 @@ int_stm_exit_thread(stm_tx_t *tx)
   if (likely(_tinystm.nb_exit_cb != 0)) {
     unsigned int cb;
     for (cb = 0; cb < _tinystm.nb_exit_cb; cb++)
-      _tinystm.exit_cb[cb].f(_tinystm.exit_cb[cb].arg);
+      _tinystm.exit_cb[cb].f(tx, _tinystm.exit_cb[cb].arg);
   }
 
 #ifdef TM_STATISTICS
@@ -1368,7 +1377,7 @@ int_stm_start(stm_tx_t *tx, stm_tx_attr_t attr)
   if (likely(_tinystm.nb_start_cb != 0)) {
     unsigned int cb;
     for (cb = 0; cb < _tinystm.nb_start_cb; cb++)
-      _tinystm.start_cb[cb].f(_tinystm.start_cb[cb].arg);
+      _tinystm.start_cb[cb].f(tx, _tinystm.start_cb[cb].arg);
   }
 
   return &tx->env;
@@ -1391,7 +1400,7 @@ int_stm_commit(stm_tx_t *tx)
   if (unlikely(_tinystm.nb_precommit_cb != 0)) {
     unsigned int cb;
     for (cb = 0; cb < _tinystm.nb_precommit_cb; cb++)
-      _tinystm.precommit_cb[cb].f(_tinystm.precommit_cb[cb].arg);
+      _tinystm.precommit_cb[cb].f(tx, _tinystm.precommit_cb[cb].arg);
   }
 
   assert(IS_ACTIVE(tx->status));
@@ -1460,7 +1469,7 @@ int_stm_commit(stm_tx_t *tx)
   if (likely(_tinystm.nb_commit_cb != 0)) {
     unsigned int cb;
     for (cb = 0; cb < _tinystm.nb_commit_cb; cb++)
-      _tinystm.commit_cb[cb].f(_tinystm.commit_cb[cb].arg);
+      _tinystm.commit_cb[cb].f(tx, _tinystm.commit_cb[cb].arg);
   }
 
   return 1;

@@ -37,7 +37,7 @@ ALIGNED static stm_word_t mod_order_ts_commit = 0;
 static int mod_order_key;
 static int mod_order_initialized = 0;
 
-static void mod_order_on_start(void *arg)
+static void mod_order_on_start(const struct stm_tx *tx, const void *arg)
 {
   stm_word_t ts;
   /* Get a timestamp for commit */
@@ -45,7 +45,7 @@ static void mod_order_on_start(void *arg)
   stm_set_specific(mod_order_key, (void *)ts);
 }
 
-static void mod_order_on_precommit(void *arg)
+static void mod_order_on_precommit(const struct stm_tx *tx, const void *arg)
 {
   stm_word_t my_ts, current_ts;
   my_ts = (stm_word_t)stm_get_specific(mod_order_key);
@@ -60,7 +60,7 @@ static void mod_order_on_precommit(void *arg)
   } while (current_ts != my_ts);
 }
 
-static void mod_order_on_commit(void *arg)
+static void mod_order_on_commit(const struct stm_tx *tx, const void *arg)
 {
   /* Release next transaction to commit */
   ATOMIC_FETCH_INC_FULL(&mod_order_ts_commit);

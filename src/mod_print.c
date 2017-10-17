@@ -30,7 +30,7 @@
 /*
  * Called upon thread creation.
  */
-static void mod_print_on_thread_init(void *arg)
+static void mod_print_on_thread_init(struct stm_tx *tx, const void *arg)
 {
   printf("==> on_thread_init()\n");
   fflush(NULL);
@@ -39,7 +39,7 @@ static void mod_print_on_thread_init(void *arg)
 /*
  * Called upon thread deletion.
  */
-static void mod_print_on_thread_exit(void *arg)
+static void mod_print_on_thread_exit(const struct stm_tx *tx, const void *arg)
 {
   printf("==> on_thread_exit()\n");
   fflush(NULL);
@@ -48,7 +48,7 @@ static void mod_print_on_thread_exit(void *arg)
 /*
  * Called upon transaction start.
  */
-static void mod_print_on_start(void *arg)
+static void mod_print_on_start(const struct stm_tx *tx, const void *arg)
 {
   printf("==> on_start()\n");
   fflush(NULL);
@@ -57,7 +57,7 @@ static void mod_print_on_start(void *arg)
 /*
  * Called before transaction try to commit.
  */
-static void mod_print_on_precommit(void *arg)
+static void mod_print_on_precommit(const struct stm_tx *tx, const void *arg)
 {
   printf("==> on_precommit()\n");
   fflush(NULL);
@@ -66,7 +66,7 @@ static void mod_print_on_precommit(void *arg)
 /*
  * Called upon transaction commit.
  */
-static void mod_print_on_commit(void *arg)
+static void mod_print_on_commit(const struct stm_tx *tx, const void *arg)
 {
   printf("==> on_commit()\n");
   fflush(NULL);
@@ -75,7 +75,7 @@ static void mod_print_on_commit(void *arg)
 /*
  * Called upon transaction abort.
  */
-static void mod_print_on_abort(void *arg)
+static void mod_print_on_abort(const struct stm_tx *tx, const void *arg)
 {
   printf("==> on_abort()\n");
   fflush(NULL);

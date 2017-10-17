@@ -43,7 +43,7 @@ void gc_exit_thread(void);
 
 void gc_set_epoch(gc_word_t epoch);
 
-void gc_free(void *addr, gc_word_t epoch);
+void gc_free(const void *addr, gc_word_t epoch);
 
 void gc_cleanup(void);
 

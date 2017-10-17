@@ -116,9 +116,9 @@ xrealloc(void *addr, size_t size)
 }
 
 static INLINE void
-xfree(void *mem)
+xfree(const void *mem)
 {
-  free(mem);
+  free((void *)mem);
 }
 
 static INLINE void*

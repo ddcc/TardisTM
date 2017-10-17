@@ -126,7 +126,7 @@ static void mod_free_record(void *addr, void (*rev_func)(void*))
 /*
  * Called upon thread creation.
  */
-static void mod_alloc_on_thread_init(void *arg)
+static void mod_alloc_on_thread_init(struct stm_tx *tx, const void *arg)
 {
   mod_alloc_info_t *mi;
 
@@ -142,7 +142,7 @@ static void mod_alloc_on_thread_init(void *arg)
 /*
  * Called upon thread deletion.
  */
-static void mod_alloc_on_thread_exit(void *arg)
+static void mod_alloc_on_thread_exit(const struct stm_tx *tx, const void *arg)
 {
   free(stm_get_specific(mod_alloc_key));
 }
@@ -150,7 +150,7 @@ static void mod_alloc_on_thread_exit(void *arg)
 /*
  * Called upon transaction commit.
  */
-static void mod_alloc_on_commit(void *arg)
+static void mod_alloc_on_commit(const struct stm_tx *tx, const void *arg)
 {
   mod_alloc_info_t *mi;
   mod_alloc_block_t *mb, *next;
@@ -185,7 +185,7 @@ static void mod_alloc_on_commit(void *arg)
 /*
  * Called upon transaction abort.
  */
-static void mod_alloc_on_abort(void *arg)
+static void mod_alloc_on_abort(const struct stm_tx *tx, const void *arg)
 {
   mod_alloc_info_t *mi;
   mod_alloc_block_t *mb, *next;
@@ -236,7 +236,7 @@ void *CREATENAME(_ZGTtna,) (size_t sz)
 }
 
 static void _ZdlPvRKSt9nothrow_t1(void *ptr)
-{ 
+{
   _ZdlPvRKSt9nothrow_t (ptr, NULL);
 }
 
@@ -271,7 +271,7 @@ _ZGTtdlPv (void *ptr)
 
 void
 _ZGTtdlPvRKSt9nothrow_t (void *ptr, c_nothrow_p nt)
-{ 
+{
   mod_free_record(ptr, _ZdlPvRKSt9nothrow_t1);
 }
 

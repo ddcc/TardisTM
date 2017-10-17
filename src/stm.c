@@ -677,13 +677,13 @@ stm_get_specific_tx(stm_tx_t *tx, int key)
  * Register callbacks for an external module (must be called before creating transactions).
  */
 _CALLCONV int
-stm_register(void (*on_thread_init)(void *arg),
-             void (*on_thread_exit)(void *arg),
-             void (*on_start)(void *arg),
-             void (*on_precommit)(void *arg),
-             void (*on_commit)(void *arg),
-             void (*on_abort)(void *arg),
-             void *arg)
+stm_register(const void (*on_thread_init)(struct stm_tx *tx, const void *arg),
+             const void (*on_thread_exit)(const struct stm_tx *tx, const void *arg),
+             const void (*on_start)(const struct stm_tx *tx, const void *arg),
+             const void (*on_precommit)(const struct stm_tx *tx, const void *arg),
+             const void (*on_commit)(const struct stm_tx *tx, const void *arg),
+             const void (*on_abort)(const struct stm_tx *tx, const void *arg),
+             const void *arg)
 {
   if ((on_thread_init != NULL && _tinystm.nb_init_cb >= MAX_CB) ||
       (on_thread_exit != NULL && _tinystm.nb_exit_cb >= MAX_CB) ||

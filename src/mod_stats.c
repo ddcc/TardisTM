@@ -124,7 +124,7 @@ int stm_get_local_stats(const char *name, void *val)
 /*
  * Called upon thread creation.
  */
-static void mod_stats_on_thread_init(void *arg)
+static void mod_stats_on_thread_init(struct stm_tx *tx, const void *arg)
 {
   mod_stats_data_t *stats;
 
@@ -142,7 +142,7 @@ static void mod_stats_on_thread_init(void *arg)
 /*
  * Called upon thread deletion.
  */
-static void mod_stats_on_thread_exit(void *arg)
+static void mod_stats_on_thread_exit(const struct stm_tx *tx, const void *arg)
 {
   mod_stats_data_t *stats;
   unsigned long max, min;
@@ -172,7 +172,7 @@ retry_min:
 /*
  * Called upon transaction commit.
  */
-static void mod_stats_on_commit(void *arg)
+static void mod_stats_on_commit(const struct stm_tx *tx, const void *arg)
 {
   mod_stats_data_t *stats;
 
@@ -191,7 +191,7 @@ static void mod_stats_on_commit(void *arg)
 /*
  * Called upon transaction abort.
  */
-static void mod_stats_on_abort(void *arg)
+static void mod_stats_on_abort(const struct stm_tx *tx, const void *arg)
 {
   mod_stats_data_t *stats;
 

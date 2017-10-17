@@ -40,19 +40,14 @@
 #define DEFAULT_CB_SIZE                 16
 
 struct mod_mem_commit_entry {           /* Callback entry */
-  void (*f)(void *);                    /* Function */
-  void *arg;                            /* Argument to be passed to function */
-#ifdef OPERATION_LOGGING
-  stm_op_t op;                          /* Index to enclosing operation */
-#endif /* OPERATION_LOGGING */
+  const void (*f)(const struct stm_tx *tx, const void *); /* Function */
+  const void *arg;                      /* Argument to be passed to function */
 };
 
 struct mod_mem_abort_entry {            /* Callback entry */
-  void (*f)(void *);                    /* Function */
-  void *arg;                            /* Argument to be passed to function */
-#ifdef OPERATION_LOGGING
-  stm_op_t op;                          /* Index to enclosing operation */
-#endif /* OPERATION_LOGGING */
+  const void (*f)(const struct stm_tx *tx,
+                  const void *);        /* Function */
+  const void *arg;                      /* Argument to be passed to function */
 };
 
 typedef struct mod_mem_info {
@@ -80,7 +75,7 @@ static union {
  * ################################################################### */
 
 static INLINE void
-mod_mem_add_on_abort(mod_mem_info_t *icb, void (*f)(void *arg), void *arg)
+mod_mem_add_on_abort(mod_mem_info_t *icb, const void (*f)(const struct stm_tx *tx, const void *arg), const void *arg)
 {
   if (unlikely(icb->abort_nb >= icb->abort_size)) {
     icb->abort_size *= 2;
@@ -92,7 +87,7 @@ mod_mem_add_on_abort(mod_mem_info_t *icb, void (*f)(void *arg), void *arg)
 }
 
 static INLINE void
-mod_mem_add_on_commit(mod_mem_info_t *icb, void (*f)(void *arg), void *arg)
+mod_mem_add_on_commit(mod_mem_info_t *icb, const void (*f)(const struct stm_tx *tx, const void *arg), const void *arg)
 {
   if (unlikely(icb->commit_nb >= icb->commit_size)) {
     icb->commit_size *= 2;
@@ -107,12 +102,12 @@ mod_mem_add_on_commit(mod_mem_info_t *icb, void (*f)(void *arg), void *arg)
  * MEMORY ALLOCATION FUNCTIONS
  * ################################################################### */
 static INLINE void
-int_stm_free_abort(void *arg) {
+int_stm_free_abort(const struct stm_tx *tx, const void *arg) {
   xfree(arg);
 }
 
 static INLINE void
-int_stm_free_commit(void *arg) {
+int_stm_free_commit(const struct stm_tx *tx, const void *arg) {
 #if MEMORY_MANAGEMENT == MM_NONE
   xfree(arg);
 #elif MEMORY_MANAGEMENT == MM_EPOCH_GC
@@ -261,17 +256,17 @@ void stm_free_tx(struct stm_tx *tx, void *addr, size_t size)
 /*
  * Called upon transaction commit.
  */
-static void mod_mem_on_commit(void *arg)
+static void mod_mem_on_commit(const struct stm_tx *tx, const void *arg)
 {
   mod_mem_info_t *icb;
 
-  icb = (mod_mem_info_t *)stm_get_specific(mod_mem.key);
+  icb = (mod_mem_info_t *)int_stm_get_specific(tx, mod_mem.key);
   assert(icb != NULL);
 
   /* Call commit callback */
   while (icb->commit_nb > 0) {
     icb->commit_nb--;
-    icb->commit[icb->commit_nb].f(icb->commit[icb->commit_nb].arg);
+    icb->commit[icb->commit_nb].f(tx, icb->commit[icb->commit_nb].arg);
   }
   /* Reset abort callback */
   icb->abort_nb = 0;
@@ -280,17 +275,17 @@ static void mod_mem_on_commit(void *arg)
 /*
  * Called upon transaction abort.
  */
-static void mod_mem_on_abort(void *arg)
+static void mod_mem_on_abort(const struct stm_tx *tx, const void *arg)
 {
   mod_mem_info_t *icb;
 
-  icb = (mod_mem_info_t *)stm_get_specific(mod_mem.key);
+  icb = (mod_mem_info_t *)int_stm_get_specific(tx, mod_mem.key);
   assert(icb != NULL);
 
   /* Call abort callback */
   while (icb->abort_nb > 0) {
     icb->abort_nb--;
-    icb->abort[icb->abort_nb].f(icb->abort[icb->abort_nb].arg);
+    icb->abort[icb->abort_nb].f(tx, icb->abort[icb->abort_nb].arg);
   }
   /* Reset commit callback */
   icb->commit_nb = 0;
@@ -299,7 +294,7 @@ static void mod_mem_on_abort(void *arg)
 /*
  * Called upon thread creation.
  */
-static void mod_mem_on_thread_init(void *arg)
+static void mod_mem_on_thread_init(struct stm_tx *tx, const void *arg)
 {
   mod_mem_info_t *icb;
 
@@ -308,17 +303,17 @@ static void mod_mem_on_thread_init(void *arg)
   icb->commit_size = icb->abort_size = DEFAULT_CB_SIZE;
   icb->commit = xmalloc(sizeof(*icb->commit) * icb->commit_size);
   icb->abort = xmalloc(sizeof(*icb->abort) * icb->abort_size);
-  stm_set_specific(mod_mem.key, icb);
+  int_stm_set_specific(tx, mod_mem.key, icb);
 }
 
 /*
  * Called upon thread deletion.
  */
-static void mod_mem_on_thread_exit(void *arg)
+static void mod_mem_on_thread_exit(const struct stm_tx *tx, const void *arg)
 {
   mod_mem_info_t *icb;
 
-  icb = (mod_mem_info_t *)stm_get_specific(mod_mem.key);
+  icb = (mod_mem_info_t *)int_stm_get_specific(tx, mod_mem.key);
   assert(icb != NULL);
 
   xfree(icb->abort);

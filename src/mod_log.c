@@ -288,7 +288,7 @@ void stm_log_bytes(uint8_t *addr, size_t size)
 /*
  * Called upon thread creation.
  */
-static void mod_log_on_thread_init(void *arg)
+static void mod_log_on_thread_init(struct stm_tx *tx, const void *arg)
 {
   mod_log_w_set_t *ws;
 
@@ -302,7 +302,7 @@ static void mod_log_on_thread_init(void *arg)
 /*
  * Called upon thread deletion.
  */
-static void mod_log_on_thread_exit(void *arg)
+static void mod_log_on_thread_exit(const struct stm_tx *tx, const void *arg)
 {
   mod_log_w_set_t *ws;
 
@@ -316,7 +316,7 @@ static void mod_log_on_thread_exit(void *arg)
 /*
  * Called upon transaction commit.
  */
-static void mod_log_on_commit(void *arg)
+static void mod_log_on_commit(const struct stm_tx *tx, const void *arg)
 {
   mod_log_w_set_t *ws;
   mod_log_w_entry_t *w;
@@ -343,7 +343,7 @@ static void mod_log_on_commit(void *arg)
 /*
  * Called upon transaction abort.
  */
-static void mod_log_on_abort(void *arg)
+static void mod_log_on_abort(const struct stm_tx *tx, const void *arg)
 {
   mod_log_w_set_t *ws;
   mod_log_w_entry_t *w;

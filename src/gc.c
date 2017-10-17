@@ -71,7 +71,7 @@ enum {                                  /* Descriptor status */
 };
 
 typedef struct gc_block {               /* Block of allocated memory */
-  void *addr;                           /* Address of memory */
+  const void *addr;                     /* Address of memory */
   struct gc_block *next;                /* Next block */
 } gc_block_t;
 
@@ -334,7 +334,7 @@ void gc_set_epoch(gc_word_t epoch)
 /*
  * Free memory (the thread must indicate the current timestamp).
  */
-void gc_free(void *addr, gc_word_t epoch)
+void gc_free(const void *addr, gc_word_t epoch)
 {
   gc_region_t *mr;
   gc_block_t *mb;

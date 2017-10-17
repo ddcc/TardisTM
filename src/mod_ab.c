@@ -295,7 +295,7 @@ static void cleanup(void)
 /*
  * Called upon thread creation.
  */
-static void mod_ab_on_thread_init(void *arg)
+static void mod_ab_on_thread_init(struct stm_tx *tx, const void *arg)
 {
   samples_buffer_t *samples;
 
@@ -314,7 +314,7 @@ static void mod_ab_on_thread_init(void *arg)
 /*
  * Called upon thread deletion.
  */
-static void mod_ab_on_thread_exit(void *arg)
+static void mod_ab_on_thread_exit(const struct stm_tx *tx, const void *arg)
 {
   samples_buffer_t *samples;
 
@@ -329,7 +329,7 @@ static void mod_ab_on_thread_exit(void *arg)
 /*
  * Called upon transaction start.
  */
-static void mod_ab_on_start(void *arg)
+static void mod_ab_on_start(const struct stm_tx *tx, const void *arg)
 {
   samples_buffer_t *samples;
 
@@ -342,7 +342,7 @@ static void mod_ab_on_start(void *arg)
 /*
  * Called upon transaction commit.
  */
-static void mod_ab_on_commit(void *arg)
+static void mod_ab_on_commit(const struct stm_tx *tx, const void *arg)
 {
   samples_buffer_t *samples;
   stm_tx_attr_t attrs;
@@ -371,7 +371,7 @@ static void mod_ab_on_commit(void *arg)
 /*
  * Called upon transaction abort.
  */
-static void mod_ab_on_abort(void *arg)
+static void mod_ab_on_abort(const struct stm_tx *tx, const void *arg)
 {
   samples_buffer_t *samples;
 
