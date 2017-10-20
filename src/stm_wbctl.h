@@ -427,7 +427,7 @@ stm_wbctl_commit(stm_tx_t *tx)
   /* Try to validate (only if a concurrent transaction has committed since tx->end) */
   if (unlikely(tx->end != t - 1 && !stm_wbctl_validate(tx))) {
     /* Cannot commit */
-    stm_rollback(tx, STM_ABORT_VALIDATE);
+    stm_rollback(tx, STM_ABORT_VAL_COMMIT);
     return 0;
   }
 

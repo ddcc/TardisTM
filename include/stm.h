@@ -185,10 +185,29 @@ typedef union stm_tx_attr {
 } stm_tx_attr_t;
 
 /**
+ * Transaction conflict type.
+ */
+typedef enum {
+  STM_RR_CONFLICT = 0x01,
+  STM_RW_CONFLICT = 0x02,
+  STM_WR_CONFLICT = 0x03,
+  STM_WW_CONFLICT = 0x04,
+  STM_RD_VALIDATE = 0x05,
+  STM_WR_VALIDATE = 0x06,
+  STM_CT_VALIDATE = 0x07,
+  STM_IRREVOCABLE = 0x08,
+  STM_EXPLICIT = 0x09,
+  STM_KILLED = 0x0A,
+  STM_SIGNAL = 0x0B,
+  STM_EXTEND_WS = 0x0C,
+  STM_OTHER = 0x0F,
+} stm_tx_conflict_t;
+
+/**
  * Reason for aborting (returned by sigsetjmp() upon transaction
  * restart).
  */
-enum {
+typedef enum {
   /**
    * Indicates that the instrumented code path must be executed.
    */
@@ -214,55 +233,73 @@ enum {
    * Abort upon reading a memory location being read by another
    * transaction.
    */
-  STM_ABORT_RR_CONFLICT = (1UL << 6) | (0x01UL << 8),
+  STM_ABORT_RR_CONFLICT = (1UL << 6) | (STM_RR_CONFLICT << 8),
   /**
    * Abort upon writing a memory location being read by another
    * transaction.
    */
-  STM_ABORT_RW_CONFLICT = (1UL << 6) | (0x02UL << 8),
+  STM_ABORT_RW_CONFLICT = (1UL << 6) | (STM_RW_CONFLICT << 8),
   /**
    * Abort upon reading a memory location being written by another
    * transaction.
    */
-  STM_ABORT_WR_CONFLICT = (1UL << 6) | (0x03UL << 8),
+  STM_ABORT_WR_CONFLICT = (1UL << 6) | (STM_WR_CONFLICT << 8),
   /**
    * Abort upon writing a memory location being written by another
    * transaction.
    */
-  STM_ABORT_WW_CONFLICT = (1UL << 6) | (0x04UL << 8),
+  STM_ABORT_WW_CONFLICT = (1UL << 6) | (STM_WW_CONFLICT << 8),
   /**
    * Abort upon read due to failed validation.
    */
-  STM_ABORT_VAL_READ = (1UL << 6) | (0x05UL << 8),
+  STM_ABORT_VAL_READ = (1UL << 6) | (STM_RD_VALIDATE << 8),
   /**
    * Abort upon write due to failed validation.
    */
-  STM_ABORT_VAL_WRITE = (1UL << 6) | (0x06UL << 8),
+  STM_ABORT_VAL_WRITE = (1UL << 6) | (STM_WR_VALIDATE << 8),
   /**
    * Abort upon commit due to failed validation.
    */
-  STM_ABORT_VALIDATE = (1UL << 6) | (0x07UL << 8),
+  STM_ABORT_VAL_COMMIT = (1UL << 6) | (STM_CT_VALIDATE << 8),
   /**
    * Abort upon deferring to an irrevocable transaction.
    */
-  STM_ABORT_IRREVOCABLE = (1UL << 6) | (0x09UL << 8),
+  STM_ABORT_IRREVOCABLE = (1UL << 6) | (STM_IRREVOCABLE << 8),
   /**
    * Abort due to being killed by another transaction.
    */
-  STM_ABORT_KILLED = (1UL << 6) | (0x0AUL << 8),
+  STM_ABORT_KILLED = (1UL << 6) | (STM_KILLED << 8),
   /**
    * Abort due to receiving a signal.
    */
-  STM_ABORT_SIGNAL = (1UL << 6) | (0x0BUL << 8),
+  STM_ABORT_SIGNAL = (1UL << 6) | (STM_SIGNAL << 8),
   /**
    * Abort due to reaching the write set size limit.
    */
-  STM_ABORT_EXTEND_WS = (1UL << 6) | (0x0CUL << 8),
+  STM_ABORT_EXTEND_WS = (1UL << 6) | (STM_EXTEND_WS << 8),
   /**
    * Abort due to other reasons (internal to the protocol).
    */
-  STM_ABORT_OTHER = (1UL << 6) | (0x0FUL << 8)
-};
+  STM_ABORT_OTHER = (1UL << 6) | (STM_OTHER << 8)
+} stm_tx_abort_t;
+
+/**
+ * Policy for contention manager to perform.
+ */
+typedef enum {
+  /**
+   * Kill this transaction.
+   */
+   STM_KILL_SELF = (1UL << 0),
+   /**
+   * Kill the other transaction.
+   */
+   STM_KILL_OTHER = (1UL << 1),
+   /**
+   * Wait on the lock.
+   */
+   STM_DELAY = (1UL << 2),
+} stm_tx_policy_t;
 
 /* ################################################################### *
  * FUNCTIONS
@@ -341,8 +378,8 @@ int stm_commit_tx(struct stm_tx *tx) _CALLCONV;
  * @param abort_reason
  *   Reason for aborting the transaction.
  */
-void stm_abort(int abort_reason) _CALLCONV;
-void stm_abort_tx(struct stm_tx *tx, int abort_reason) _CALLCONV;
+void stm_abort(stm_tx_abort_t abort_reason) _CALLCONV;
+void stm_abort_tx(struct stm_tx *tx, stm_tx_abort_t abort_reason) _CALLCONV;
 //@}
 
 //@{

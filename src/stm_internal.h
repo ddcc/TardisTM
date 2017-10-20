@@ -411,7 +411,7 @@ typedef struct {
   void (*conflict_cb)(stm_tx_t *, stm_tx_t *);
 #endif /* CONFLICT_TRACKING */
 #if CM == CM_MODULAR
-  int (*contention_manager)(stm_tx_t *, stm_tx_t *, int);
+  stm_tx_policy_t (*contention_manager)(stm_tx_t *, stm_tx_t *, stm_tx_conflict_t);
 #endif /* CM == CM_MODULAR */
   /* At least twice a cache line (256 bytes to be on the safe side) */
   char padding[CACHELINE_SIZE];
@@ -419,23 +419,12 @@ typedef struct {
 
 extern global_t _tinystm;
 
-#if CM == CM_MODULAR
-# define KILL_SELF                      0x00
-# define KILL_OTHER                     0x01
-# define DELAY_RESTART                  0x04
-
-# define RR_CONFLICT                    0x00
-# define RW_CONFLICT                    0x01
-# define WR_CONFLICT                    0x02
-# define WW_CONFLICT                    0x03
-#endif /* CM == CM_MODULAR */
-
 /* ################################################################### *
  * FUNCTIONS DECLARATIONS
  * ################################################################### */
 
 static NOINLINE void
-stm_rollback(stm_tx_t *tx, unsigned int reason);
+stm_rollback(stm_tx_t *tx, stm_tx_abort_t reason);
 
 /* ################################################################### *
  * INLINE FUNCTIONS
@@ -974,7 +963,7 @@ int_stm_prepare(stm_tx_t *tx)
  * Rollback transaction.
  */
 static NOINLINE void
-stm_rollback(stm_tx_t *tx, unsigned int reason)
+stm_rollback(stm_tx_t *tx, stm_tx_abort_t reason)
 {
 #if CM == CM_BACKOFF
   unsigned long wait;
@@ -1034,7 +1023,10 @@ stm_rollback(stm_tx_t *tx, unsigned int reason)
 #endif /* TM_STATISTICS */
 #ifdef TM_STATISTICS2
   /* Aborts stats wrt reason */
-  tx->stat_aborts_r[(reason >> 8) & 0x0F]++;
+  if (reason & STM_ABORT_IMPLICIT)
+    tx->stat_aborts_r[(reason & ~STM_ABORT_IMPLICIT) >> 8]++;
+  else if (reason & STM_ABORT_EXPLICIT)
+    tx->stat_aborts_r[STM_EXPLICIT]++;
   if (tx->stat_retries == 1)
     tx->stat_aborts_1++;
   else if (tx->stat_retries == 2)
@@ -1614,7 +1606,7 @@ int_stm_get_stats(stm_tx_t *tx, const char *name, void *val)
     return 1;
   }
   if (strcmp("nb_aborts_validate_commit", name) == 0) {
-    *(unsigned int *)val = tx->stat_aborts_r[STM_ABORT_VALIDATE >> 8];
+    *(unsigned int *)val = tx->stat_aborts_r[STM_ABORT_VAL_COMMIT >> 8];
     return 1;
   }
   if (strcmp("nb_aborts_killed", name) == 0) {

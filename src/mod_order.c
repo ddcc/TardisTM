@@ -31,9 +31,6 @@
 #include "utils.h"
 #include "mod_order.h"
 
-#define KILL_SELF                      0x00
-#define KILL_OTHER                     0x01
-
 /* XXX Maybe these two could be in the same cacheline. */
 ALIGNED static stm_word_t mod_order_ts_next = 0;
 ALIGNED static stm_word_t mod_order_ts_commit = 0;
@@ -69,15 +66,15 @@ static void mod_order_on_commit(void *arg)
   ATOMIC_FETCH_INC_FULL(&mod_order_ts_commit);
 }
 
-static int mod_order_cm(struct stm_tx *tx, struct stm_tx *other_tx, int conflict)
+static int mod_order_cm(struct stm_tx *tx, struct stm_tx *other_tx, stm_tx_conflict_t conflict)
 {
   stm_word_t my_order = (stm_word_t)stm_get_specific_tx(tx, mod_order_key);
   stm_word_t other_order = (stm_word_t)stm_get_specific_tx(other_tx, mod_order_key);
 
   if (my_order < other_order)
-    return KILL_OTHER;
+    return STM_KILL_OTHER;
 
-  return KILL_SELF;
+  return STM_KILL_SELF;
 }
 
 /*

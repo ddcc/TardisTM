@@ -125,64 +125,65 @@ __thread long thread_gc = 0;
 /*
  * Kill other.
  */
-static int
-cm_aggressive(struct stm_tx *me, struct stm_tx *other, int conflict)
+static stm_tx_policy_t
+cm_aggressive(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict)
 {
-  return KILL_OTHER;
+  return STM_KILL_OTHER;
 }
 
 /*
  * Kill self.
  */
-static int
-cm_suicide(struct stm_tx *me, struct stm_tx *other, int conflict)
+static stm_tx_policy_t
+cm_suicide(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict)
 {
-  return KILL_SELF;
+  return STM_KILL_SELF;
 }
 
 /*
  * Kill self and wait before restart.
  */
-static int
-cm_delay(struct stm_tx *me, struct stm_tx *other, int conflict)
+static stm_tx_policy_t
+cm_delay(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict)
 {
-  return KILL_SELF | DELAY_RESTART;
+  return STM_KILL_SELF | STM_DELAY;
 }
 
 /*
  * Oldest transaction has priority.
  */
-static int
-cm_timestamp(struct stm_tx *me, struct stm_tx *other, int conflict)
+static stm_tx_policy_t
+cm_timestamp(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict)
 {
   if (me->timestamp < other->timestamp)
-    return KILL_OTHER;
+    return STM_KILL_OTHER;
   if (me->timestamp == other->timestamp && (uintptr_t)me < (uintptr_t)other)
-    return KILL_OTHER;
-  return KILL_SELF | DELAY_RESTART;
+    return STM_KILL_OTHER;
+  return STM_KILL_SELF | STM_DELAY;
 }
 
 /*
  * Transaction with more work done has priority.
  */
-static int
-cm_karma(struct stm_tx *me, struct stm_tx *other, int conflict)
+static stm_tx_policy_t
+cm_karma(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict)
 {
+
   unsigned int me_work, other_work;
 
   me_work = (me->w_set.nb_entries << 1) + me->r_set.nb_entries;
   other_work = (other->w_set.nb_entries << 1) + other->r_set.nb_entries;
 
   if (me_work < other_work)
-    return KILL_OTHER;
+    return STM_KILL_OTHER;
   if (me_work == other_work && (uintptr_t)me < (uintptr_t)other)
-    return KILL_OTHER;
-  return KILL_SELF;
+    return STM_KILL_OTHER;
+  return STM_KILL_SELF;
 }
 
 struct {
   const char *name;
-  int (*f)(stm_tx_t *, stm_tx_t *, int);
+  stm_tx_policy_t (*f)(stm_tx_t *, stm_tx_t *, stm_tx_conflict_t);
 } cms[] = {
   { "aggressive", cm_aggressive },
   { "suicide", cm_suicide },
@@ -370,14 +371,14 @@ stm_commit_tx(stm_tx_t *tx)
  * Called by the CURRENT thread to abort a transaction.
  */
 _CALLCONV void
-stm_abort(int reason)
+stm_abort(stm_tx_abort_t reason)
 {
   TX_GET;
   stm_rollback(tx, reason | STM_ABORT_EXPLICIT);
 }
 
 _CALLCONV void
-stm_abort_tx(stm_tx_t *tx, int reason)
+stm_abort_tx(stm_tx_t *tx, stm_tx_abort_t reason)
 {
   stm_rollback(tx, reason | STM_ABORT_EXPLICIT);
 }
@@ -609,7 +610,7 @@ stm_set_parameter(const char *name, void *val)
     return 0;
   }
   if (strcmp("cm_function", name) == 0) {
-    _tinystm.contention_manager = (int (*)(stm_tx_t *, stm_tx_t *, int))val;
+    _tinystm.contention_manager = (stm_tx_policy_t (*)(stm_tx_t *, stm_tx_t *, stm_tx_conflict_t))val;
     return 1;
   }
   if (strcmp("vr_threshold", name) == 0) {
@@ -953,24 +954,24 @@ int_stm_set_irrevocable(stm_tx_t *tx, int serial)
     /* Try validating transaction */
 #if DESIGN == WRITE_BACK_ETL
     if (!stm_wbetl_validate(tx)) {
-      stm_rollback(tx, STM_ABORT_VALIDATE);
+      stm_rollback(tx, STM_ABORT_VAL_COMMIT);
       return 0;
     }
 #elif DESIGN == WRITE_BACK_CTL
     if (!stm_wbctl_validate(tx)) {
-      stm_rollback(tx, STM_ABORT_VALIDATE);
+      stm_rollback(tx, STM_ABORT_VAL_COMMIT);
       return 0;
     }
 #elif DESIGN == WRITE_THROUGH
     if (!stm_wt_validate(tx)) {
-      stm_rollback(tx, STM_ABORT_VALIDATE);
+      stm_rollback(tx, STM_ABORT_VAL_COMMIT);
       return 0;
     }
 #elif DESIGN == MODULAR
     if ((tx->attr.id == WRITE_BACK_CTL && !stm_wbctl_validate(tx))
        || (tx->attr.id == WRITE_THROUGH && !stm_wt_validate(tx))
        || (tx->attr.id != WRITE_BACK_CTL && tx->attr.id != WRITE_THROUGH && !stm_wbetl_validate(tx))) {
-      stm_rollback(tx, STM_ABORT_VALIDATE);
+      stm_rollback(tx, STM_ABORT_VAL_COMMIT);
       return 0;
     }
 #endif /* DESIGN == MODULAR */

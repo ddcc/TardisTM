@@ -166,7 +166,7 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
   w_entry_t *w;
 #if CM == CM_MODULAR
   stm_word_t t;
-  int decision;
+  stm_tx_policy_t decision;
 #endif /* CM == CM_MODULAR */
 
   PRINT_DEBUG2("==> stm_wbetl_read_invisible(t=%p[%lu-%lu],a=%p)\n", tx, (unsigned long)tx->start, (unsigned long)tx->end, addr);
@@ -274,16 +274,16 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
 #  endif /* READ_LOCKED_DATA */
     if (GET_STATUS(t) == TX_KILLING) {
       /* We can safely steal lock */
-      decision = KILL_OTHER;
+      decision = STM_KILL_OTHER;
     } else {
       decision =
 #  ifdef IRREVOCABLE_ENABLED
-        GET_STATUS(tx->status) == TX_IRREVOCABLE ? KILL_OTHER :
-        GET_STATUS(t) == TX_IRREVOCABLE ? KILL_SELF :
+        GET_STATUS(tx->status) == TX_IRREVOCABLE ? STM_KILL_OTHER :
+        GET_STATUS(t) == TX_IRREVOCABLE ? STM_KILL_SELF :
 #  endif /* IRREVOCABLE_ENABLED */
-        GET_STATUS(tx->status) == TX_KILLED ? KILL_SELF :
-        (_tinystm.contention_manager != NULL ? _tinystm.contention_manager(tx, w->tx, RW_CONFLICT) : KILL_SELF);
-      if (decision == KILL_OTHER) {
+        GET_STATUS(tx->status) == TX_KILLED ? STM_KILL_SELF :
+        (_tinystm.contention_manager != NULL ? _tinystm.contention_manager(tx, w->tx, STM_RW_CONFLICT) : STM_KILL_SELF);
+      if (decision == STM_KILL_OTHER) {
         /* Kill other */
         if (!stm_kill(tx, w->tx, t)) {
           /* Transaction may have committed or aborted: retry */
@@ -291,7 +291,7 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
         }
       }
     }
-    if (decision == KILL_OTHER) {
+    if (decision == STM_KILL_OTHER) {
       /* Steal lock */
       l2 = LOCK_SET_TIMESTAMP(w->version);
       if (ATOMIC_CAS_FULL(lock, l, l2) == 0)
@@ -300,7 +300,7 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
       goto restart_no_load;
     }
     /* Kill self */
-    if ((decision & DELAY_RESTART) != 0)
+    if ((decision & STM_DELAY) != 0)
       tx->c_lock = lock;
 # elif CM == CM_DELAY
     tx->c_lock = lock;
@@ -392,7 +392,7 @@ stm_wbetl_read_visible(stm_tx_t *tx, volatile stm_word_t *addr)
   volatile stm_word_t *lock;
   stm_word_t l, l2, t, value, version;
   w_entry_t *w;
-  int decision;
+  stm_tx_policy_t decision;
 
   PRINT_DEBUG2("==> stm_wbetl_read_visible(t=%p[%lu-%lu],a=%p)\n", tx, (unsigned long)tx->start, (unsigned long)tx->end, addr);
 
@@ -464,16 +464,16 @@ stm_wbetl_read_visible(stm_tx_t *tx, volatile stm_word_t *addr)
     }
     if (GET_STATUS(t) == TX_KILLING) {
       /* We can safely steal lock */
-      decision = KILL_OTHER;
+      decision = STM_KILL_OTHER;
     } else {
       decision =
 # ifdef IRREVOCABLE_ENABLED
-        GET_STATUS(tx->status) == TX_IRREVOCABLE ? KILL_OTHER :
-        GET_STATUS(t) == TX_IRREVOCABLE ? KILL_SELF :
+        GET_STATUS(tx->status) == TX_IRREVOCABLE ? STM_KILL_OTHER :
+        GET_STATUS(t) == TX_IRREVOCABLE ? STM_KILL_SELF :
 # endif /* IRREVOCABLE_ENABLED */
-        GET_STATUS(tx->status) == TX_KILLED ? KILL_SELF :
-        (_tinystm.contention_manager != NULL ? _tinystm.contention_manager(tx, w->tx, (LOCK_GET_WRITE(l) ? WR_CONFLICT : RR_CONFLICT)) : KILL_SELF);
-      if (decision == KILL_OTHER) {
+        GET_STATUS(tx->status) == TX_KILLED ? STM_KILL_SELF :
+        (_tinystm.contention_manager != NULL ? _tinystm.contention_manager(tx, w->tx, (LOCK_GET_WRITE(l) ? STM_WR_CONFLICT : STM_RR_CONFLICT)) : STM_KILL_SELF);
+      if (decision == STM_KILL_OTHER) {
         /* Kill other */
         if (!stm_kill(tx, w->tx, t)) {
           /* Transaction may have committed or aborted: retry */
@@ -481,12 +481,12 @@ stm_wbetl_read_visible(stm_tx_t *tx, volatile stm_word_t *addr)
         }
       }
     }
-    if (decision == KILL_OTHER) {
+    if (decision == STM_KILL_OTHER) {
       version = w->version;
       goto acquire;
     }
     /* Kill self */
-    if ((decision & DELAY_RESTART) != 0)
+    if ((decision & STM_DELAY) != 0)
       tx->c_lock = lock;
     /* Abort */
 # ifdef CONFLICT_TRACKING
@@ -546,7 +546,7 @@ stm_wbetl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_w
   w_entry_t *w;
   w_entry_t *prev = NULL;
 #if CM == CM_MODULAR
-  int decision;
+  stm_tx_policy_t decision;
   stm_word_t l2, t;
 #endif /* CM == CM_MODULAR */
 
@@ -645,16 +645,16 @@ stm_wbetl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_w
     }
     if (GET_STATUS(t) == TX_KILLING) {
       /* We can safely steal lock */
-      decision = KILL_OTHER;
+      decision = STM_KILL_OTHER;
     } else {
       decision =
 # ifdef IRREVOCABLE_ENABLED
-        GET_STATUS(tx->status) == TX_IRREVOCABLE ? KILL_OTHER :
-        GET_STATUS(t) == TX_IRREVOCABLE ? KILL_SELF :
+        GET_STATUS(tx->status) == TX_IRREVOCABLE ? STM_KILL_OTHER :
+        GET_STATUS(t) == TX_IRREVOCABLE ? STM_KILL_SELF :
 # endif /* IRREVOCABLE_ENABLED */
-        GET_STATUS(tx->status) == TX_KILLED ? KILL_SELF :
-        (_tinystm.contention_manager != NULL ? _tinystm.contention_manager(tx, w->tx, WW_CONFLICT) : KILL_SELF);
-      if (decision == KILL_OTHER) {
+        GET_STATUS(tx->status) == TX_KILLED ? STM_KILL_SELF :
+        (_tinystm.contention_manager != NULL ? _tinystm.contention_manager(tx, w->tx, STM_WW_CONFLICT) : STM_KILL_SELF);
+      if (decision == STM_KILL_OTHER) {
         /* Kill other */
         if (!stm_kill(tx, w->tx, t)) {
           /* Transaction may have committed or aborted: retry */
@@ -662,13 +662,13 @@ stm_wbetl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_w
         }
       }
     }
-    if (decision == KILL_OTHER) {
+    if (decision == STM_KILL_OTHER) {
       /* Handle write after reads (before CAS) */
       version = w->version;
       goto acquire;
     }
     /* Kill self */
-    if ((decision & DELAY_RESTART) != 0)
+    if ((decision & STM_DELAY) != 0)
       tx->c_lock = lock;
 #elif CM == CM_DELAY
     tx->c_lock = lock;
@@ -895,7 +895,7 @@ stm_wbetl_commit(stm_tx_t *tx)
     /* Abort caused by invisible reads */
     tx->visible_reads++;
 #endif /* CM == CM_MODULAR */
-    stm_rollback(tx, STM_ABORT_VALIDATE);
+    stm_rollback(tx, STM_ABORT_VAL_COMMIT);
     return 0;
   }
 
