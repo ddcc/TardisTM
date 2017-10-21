@@ -275,7 +275,7 @@ static void mod_mem_on_commit(const struct stm_tx *tx, const void *arg)
 /*
  * Called upon transaction abort.
  */
-static void mod_mem_on_abort(const struct stm_tx *tx, const void *arg)
+static void mod_mem_on_abort(const struct stm_tx *tx, const stm_tx_abort_t reason, const void *arg)
 {
   mod_mem_info_t *icb;
 

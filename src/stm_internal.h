@@ -338,6 +338,13 @@ typedef struct cb_entry2 {              /* Callback entry */
   const void *arg;                      /* Argument to be passed to function */
 } cb_entry2_t;
 
+typedef struct cb_entry3 {              /* Callback entry */
+  const void (*f)(const struct stm_tx *,
+                  const stm_tx_abort_t,
+                  const void *);        /* Function */
+  const void *arg;                      /* Argument to be passed to function */
+} cb_entry3_t;
+
 typedef struct stm_tx {                 /* Transaction descriptor */
   JMP_BUF env;                          /* Environment for setjmp/longjmp */
   stm_tx_attr_t attr;                   /* Transaction attributes (user-specified) */
@@ -403,7 +410,7 @@ typedef struct {
   unsigned int nb_commit_cb;
   cb_entry2_t commit_cb[MAX_CB];        /* Commit callbacks */
   unsigned int nb_abort_cb;
-  cb_entry2_t abort_cb[MAX_CB];         /* Abort callbacks */
+  cb_entry3_t abort_cb[MAX_CB];         /* Abort callbacks */
   unsigned int initialized;             /* Has the library been initialized? */
 #ifdef IRREVOCABLE_ENABLED
   volatile stm_word_t irrevocable;      /* Irrevocability status */
@@ -1057,7 +1064,7 @@ stm_rollback(stm_tx_t *tx, stm_tx_abort_t reason)
   if (likely(_tinystm.nb_abort_cb != 0)) {
     unsigned int cb;
     for (cb = 0; cb < _tinystm.nb_abort_cb; cb++)
-      _tinystm.abort_cb[cb].f(tx, _tinystm.abort_cb[cb].arg);
+      _tinystm.abort_cb[cb].f(tx, reason, _tinystm.abort_cb[cb].arg);
   }
 
 #if CM == CM_BACKOFF

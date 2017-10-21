@@ -619,7 +619,7 @@ int stm_register(const void (*on_thread_init)(struct stm_tx *tx, const void *arg
                  const void (*on_start)(const struct stm_tx *tx, const void *arg),
                  const void (*on_precommit)(const struct stm_tx *tx, const void *arg),
                  const void (*on_commit)(const struct stm_tx *tx, const void *arg),
-                 const void (*on_abort)(const struct stm_tx *tx, const void *arg),
+                 const void (*on_abort)(const struct stm_tx *tx, const stm_tx_abort_t reason, const void *arg),
                  const void *arg) _CALLCONV;
 
 /**
