@@ -384,6 +384,8 @@ typedef struct stm_tx {                 /* Transaction descriptor */
   unsigned int stat_retries_max;        /* Maximum number of consecutive aborts (retries) */
 #endif /* TM_STATISTICS */
 #ifdef TM_STATISTICS2
+  unsigned long stat_reads;             /* Total number of transactional reads (cumulative) */
+  unsigned long stat_writes;            /* Total number of transactional writes (cumulative) */
   unsigned int stat_aborts_1;           /* Total number of transactions that abort once or more (cumulative) */
   unsigned int stat_aborts_2;           /* Total number of transactions that abort twice or more (cumulative) */
   unsigned int stat_aborts_r[16];       /* Total number of transactions that abort wrt. abort reason (cumulative) */
@@ -1140,6 +1142,10 @@ stm_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_word_t 
   assert(!tx->attr.read_only);
 #endif /* DEBUG */
 
+#ifdef TM_STATISTICS2
+  ++tx->stat_writes;
+#endif /* TM_STATISTICS2 */
+
 #if DESIGN == WRITE_BACK_ETL
   w = stm_wbetl_write(tx, addr, value, mask);
 #elif DESIGN == WRITE_BACK_CTL
@@ -1290,6 +1296,8 @@ int_stm_init_thread(void)
   tx->stat_retries_max = 0;
 #endif /* TM_STATISTICS */
 #ifdef TM_STATISTICS2
+  tx->stat_reads = 0;
+  tx->stat_writes = 0;
   tx->stat_aborts_1 = 0;
   tx->stat_aborts_2 = 0;
   memset(tx->stat_aborts_r, 0, sizeof(unsigned int) * 16);
@@ -1485,6 +1493,11 @@ int_stm_commit(stm_tx_t *tx)
 static INLINE stm_word_t
 int_stm_load(stm_tx_t *tx, volatile stm_word_t *addr)
 {
+#ifdef TM_STATISTICS2
+  ++tx->stat_reads;
+#endif /* TM_STATISTICS2 */
+
+  assert(addr == ALIGN_ADDR(addr));
 #if DESIGN == WRITE_BACK_ETL
   return stm_wbetl_read(tx, addr);
 #elif DESIGN == WRITE_BACK_CTL
@@ -1579,6 +1592,10 @@ int_stm_get_stats(stm_tx_t *tx, const char *name, void *val)
     return 1;
   }
 #ifdef TM_STATISTICS
+  if (strcmp("nb_retries", name) == 0) {
+    *(unsigned int *)val = tx->stat_retries;
+    return 1;
+  }
   if (strcmp("nb_commits", name) == 0) {
     *(unsigned int *)val = tx->stat_commits;
     return 1;
@@ -1597,12 +1614,24 @@ int_stm_get_stats(stm_tx_t *tx, const char *name, void *val)
   }
 #endif /* TM_STATISTICS */
 #ifdef TM_STATISTICS2
+  if (strcmp("nb_reads", name) == 0) {
+    *(unsigned long *)val = tx->stat_reads;
+    return 1;
+  }
+  if (strcmp("nb_writes", name) == 0) {
+    *(unsigned long *)val = tx->stat_writes;
+    return 1;
+  }
   if (strcmp("nb_aborts_1", name) == 0) {
     *(unsigned int *)val = tx->stat_aborts_1;
     return 1;
   }
   if (strcmp("nb_aborts_2", name) == 0) {
     *(unsigned int *)val = tx->stat_aborts_2;
+    return 1;
+  }
+  if (strcmp("nb_aborts_reason", name) == 0) {
+    memcpy(val, tx->stat_aborts_r, sizeof(tx->stat_aborts_r));
     return 1;
   }
   if (strcmp("nb_aborts_locked_read", name) == 0) {
