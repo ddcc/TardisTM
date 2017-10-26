@@ -127,16 +127,17 @@
  * TYPES
  * ################################################################### */
 
-enum {                                    /* Transaction status */
+typedef enum {                                /* Transaction status */
   TX_IDLE = 0UL,
-  TX_ACTIVE = 1UL,                        /* Lowest bit indicates activity */
+  TX_ACTIVE_BIT = 1UL,                        /* Lowest bit indicates activity */
   TX_COMMITTED = (1UL << 1),
   TX_ABORTED = (2UL << 1),
-  TX_COMMITTING = (1UL << 1) | TX_ACTIVE,
-  TX_ABORTING = (2UL << 1) | TX_ACTIVE,
-  TX_KILLED = (3UL << 1) | TX_ACTIVE,
-  TX_IRREVOCABLE = (1UL << 3) | TX_ACTIVE /* Fourth bit indicates irrevocability */
-};
+  TX_KILLED = (3UL << 1),
+  TX_COMMITTING = TX_COMMITTED | TX_ACTIVE_BIT,
+  TX_ABORTING = TX_ABORTED | TX_ACTIVE_BIT,
+  TX_KILLING = TX_KILLED | TX_ACTIVE_BIT,
+  TX_IRREVOCABLE = (1UL << 3) | TX_ACTIVE_BIT /* Fourth bit indicates irrevocability */
+} tx_status_t;
 #define STATUS_BITS                     4UL
 #define STATUS_MASK                     ((1UL << STATUS_BITS) - 1)
 
@@ -151,7 +152,7 @@ enum {                                    /* Transaction status */
 # define UPDATE_STATUS(s, v)            ((s) = (v))
 # define GET_STATUS(s)                  ((s))
 #endif /* CM != CM_MODULAR */
-#define IS_ACTIVE(s)                    ((GET_STATUS(s) & 0x01) == TX_ACTIVE)
+#define IS_ACTIVE(s)                    ((GET_STATUS(s) & TX_ACTIVE_BIT) == TX_ACTIVE_BIT)
 
 /* ################################################################### *
  * LOCKS
@@ -321,7 +322,7 @@ typedef struct cb_entry {               /* Callback entry */
 typedef struct stm_tx {                 /* Transaction descriptor */
   JMP_BUF env;                          /* Environment for setjmp/longjmp */
   stm_tx_attr_t attr;                   /* Transaction attributes (user-specified) */
-  volatile stm_word_t status;           /* Transaction status */
+  volatile tx_status_t status;          /* Transaction status */
   stm_word_t start;                     /* Start timestamp */
   stm_word_t end;                       /* End timestamp (validity range) */
   r_set_t r_set;                        /* Read set */
@@ -822,7 +823,7 @@ stm_kill(stm_tx_t *tx, stm_tx_t *other, stm_word_t status)
   if (GET_STATUS(status) == TX_IRREVOCABLE)
     return 0;
 # endif /* IRREVOCABLE_ENABLED */
-  if (GET_STATUS(status) == TX_ABORTED || GET_STATUS(status) == TX_COMMITTED || GET_STATUS(status) == TX_KILLED || GET_STATUS(status) == TX_IDLE)
+  if (GET_STATUS(status) == TX_ABORTED || GET_STATUS(status) == TX_COMMITTED || GET_STATUS(status) == TX_KILLING || GET_STATUS(status) == TX_IDLE)
     return 0;
   if (GET_STATUS(status) == TX_ABORTING || GET_STATUS(status) == TX_COMMITTING) {
     /* Transaction is already aborting or committing: wait */
@@ -832,7 +833,7 @@ stm_kill(stm_tx_t *tx, stm_tx_t *other, stm_word_t status)
   }
   assert(IS_ACTIVE(status));
   /* Set status to KILLED */
-  if (ATOMIC_CAS_FULL(&other->status, status, status + (TX_KILLED - TX_ACTIVE)) == 0) {
+  if (ATOMIC_CAS_FULL(&other->status, status, status + TX_KILLING) == 0) {
     /* Transaction is committing/aborting (or has committed/aborted) */
     c = GET_STATUS_COUNTER(status);
     do {
@@ -841,7 +842,7 @@ stm_kill(stm_tx_t *tx, stm_tx_t *other, stm_word_t status)
       if (GET_STATUS(t) == TX_IRREVOCABLE)
         return 0;
 # endif /* IRREVOCABLE_ENABLED */
-    } while (GET_STATUS(t) != TX_ABORTED && GET_STATUS(t) != TX_COMMITTED && GET_STATUS(t) != TX_KILLED && GET_STATUS(t) != TX_IDLE && GET_STATUS_COUNTER(t) == c);
+    } while (GET_STATUS(t) != TX_ABORTED && GET_STATUS(t) != TX_COMMITTED && GET_STATUS(t) != TX_KILLING && GET_STATUS(t) != TX_IDLE && GET_STATUS_COUNTER(t) == c);
     return 0;
   }
   /* We have killed the transaction: we can steal the lock */
@@ -929,10 +930,10 @@ int_stm_prepare(stm_tx_t *tx)
     stm_set_irrevocable_tx(tx, -1);
     UPDATE_STATUS(tx->status, TX_IRREVOCABLE);
   } else
-    UPDATE_STATUS(tx->status, TX_ACTIVE);
+    UPDATE_STATUS(tx->status, TX_ACTIVE_BIT);
 #else /* ! IRREVOCABLE_ENABLED */
   /* Set status */
-  UPDATE_STATUS(tx->status, TX_ACTIVE);
+  UPDATE_STATUS(tx->status, TX_ACTIVE_BIT);
 #endif /* ! IRREVOCABLE_ENABLED */
 
   stm_check_quiesce(tx);
@@ -964,9 +965,9 @@ stm_rollback(stm_tx_t *tx, unsigned int reason)
 #if CM == CM_MODULAR
   /* Set status to ABORTING */
   t = tx->status;
-  if (GET_STATUS(t) == TX_KILLED || (GET_STATUS(t) == TX_ACTIVE && ATOMIC_CAS_FULL(&tx->status, t, t + (TX_ABORTING - TX_ACTIVE)) == 0)) {
+  if (GET_STATUS(t) == TX_KILLING || (IS_ACTIVE(t) && ATOMIC_CAS_FULL(&tx->status, t, t + TX_ABORTED) == 0)) {
     /* We have been killed */
-    assert(GET_STATUS(tx->status) == TX_KILLED);
+    assert(GET_STATUS(tx->status) == TX_KILLING);
     /* Release locks */
     stm_drop(tx);
     goto dropped;
@@ -1087,7 +1088,7 @@ stm_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_word_t 
                tx, (unsigned long)tx->start, (unsigned long)tx->end, addr, (void *)value, (unsigned long)value, (unsigned long)mask);
 
 #if CM == CM_MODULAR
-  if (GET_STATUS(tx->status) == TX_KILLED) {
+  if (GET_STATUS(tx->status) == TX_KILLING) {
     stm_rollback(tx, STM_ABORT_KILLED);
     return NULL;
   }
@@ -1375,9 +1376,9 @@ int_stm_commit(stm_tx_t *tx)
 #if CM == CM_MODULAR
   /* Set status to COMMITTING */
   t = tx->status;
-  if (GET_STATUS(t) == TX_KILLED || ATOMIC_CAS_FULL(&tx->status, t, t + (TX_COMMITTING - GET_STATUS(t))) == 0) {
+  if (GET_STATUS(t) == TX_KILLING || ATOMIC_CAS_FULL(&tx->status, t, t + (TX_COMMITTING - GET_STATUS(t))) == 0) {
     /* We have been killed */
-    assert(GET_STATUS(tx->status) == TX_KILLED);
+    assert(GET_STATUS(tx->status) == TX_KILLING);
     stm_rollback(tx, STM_ABORT_KILLED);
     return 0;
   }
@@ -1502,7 +1503,7 @@ static INLINE int
 int_stm_killed(stm_tx_t *tx)
 {
   assert (tx != NULL);
-  return (GET_STATUS(tx->status) == TX_KILLED);
+  return (GET_STATUS(tx->status) == TX_KILLING);
 }
 
 static INLINE sigjmp_buf *

@@ -131,9 +131,9 @@ stm_wbetl_rollback(stm_tx_t *tx)
 #if CM == CM_MODULAR
   /* Set status to ABORTING */
   t = tx->status;
-  if (GET_STATUS(t) == TX_KILLED || (GET_STATUS(t) == TX_ACTIVE && ATOMIC_CAS_FULL(&tx->status, t, t + (TX_ABORTING - TX_ACTIVE)) == 0)) {
+  if (GET_STATUS(t) == TX_KILLING || (GET_STATUS(t) == TX_ACTIVE_BIT && ATOMIC_CAS_FULL(&tx->status, t, t + TX_ABORTED) == 0)) {
     /* We have been killed */
-    assert(GET_STATUS(tx->status) == TX_KILLED);
+    assert(GET_STATUS(tx->status) == TX_KILLING);
     /* Release locks */
     stm_drop(tx);
     return;
@@ -202,7 +202,7 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
           /* No: get value from memory */
           value = ATOMIC_LOAD(addr);
 # if CM == CM_MODULAR
-          if (GET_STATUS(tx->status) == TX_KILLED) {
+          if (GET_STATUS(tx->status) == TX_KILLING) {
             stm_rollback(tx, STM_ABORT_KILLED);
             return 0;
           }
@@ -248,7 +248,7 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
 #   ifdef IRREVOCABLE_ENABLED
     if (IS_ACTIVE(t) && !tx->irrevocable)
 #   else /* ! IRREVOCABLE_ENABLED */
-    if (GET_STATUS(t) == TX_ACTIVE)
+    if (GET_STATUS(t) == TX_ACTIVE_BIT)
 #   endif /* ! IRREVOCABLE_ENABLED */
     {
       /* Read old version */
@@ -273,7 +273,7 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
 #  endif /* TM_STATISTICS2 */
     }
 #  endif /* READ_LOCKED_DATA */
-    if (GET_STATUS(t) == TX_KILLED) {
+    if (GET_STATUS(t) == TX_KILLING) {
       /* We can safely steal lock */
       decision = KILL_OTHER;
     } else {
@@ -367,7 +367,7 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
     }
 #if CM == CM_MODULAR
     /* Check if killed (necessary to avoid possible race on read-after-write) */
-    if (GET_STATUS(tx->status) == TX_KILLED) {
+    if (GET_STATUS(tx->status) == TX_KILLING) {
       stm_rollback(tx, STM_ABORT_KILLED);
       return 0;
     }
@@ -408,7 +408,7 @@ stm_wbetl_read_visible(stm_tx_t *tx, volatile stm_word_t *addr)
 
   PRINT_DEBUG2("==> stm_wbetl_read_visible(t=%p[%lu-%lu],a=%p)\n", tx, (unsigned long)tx->start, (unsigned long)tx->end, addr);
 
-  if (GET_STATUS(tx->status) == TX_KILLED) {
+  if (GET_STATUS(tx->status) == TX_KILLING) {
     stm_rollback(tx, STM_ABORT_KILLED);
     return 0;
   }
@@ -452,7 +452,7 @@ stm_wbetl_read_visible(stm_tx_t *tx, volatile stm_word_t *addr)
           w = w->next;
         }
       }
-      if (GET_STATUS(tx->status) == TX_KILLED) {
+      if (GET_STATUS(tx->status) == TX_KILLING) {
         stm_rollback(tx, STM_ABORT_KILLED);
         return 0;
       }
@@ -474,7 +474,7 @@ stm_wbetl_read_visible(stm_tx_t *tx, volatile stm_word_t *addr)
       /* Transaction status has changed: restart the whole procedure */
       goto restart;
     }
-    if (GET_STATUS(t) == TX_KILLED) {
+    if (GET_STATUS(t) == TX_KILLING) {
       /* We can safely steal lock */
       decision = KILL_OTHER;
     } else {
@@ -655,7 +655,7 @@ stm_wbetl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_w
       /* Transaction status has changed: restart the whole procedure */
       goto restart;
     }
-    if (GET_STATUS(t) == TX_KILLED) {
+    if (GET_STATUS(t) == TX_KILLING) {
       /* We can safely steal lock */
       decision = KILL_OTHER;
     } else {

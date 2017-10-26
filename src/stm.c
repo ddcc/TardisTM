@@ -207,7 +207,7 @@ signal_catcher(int sig)
   PRINT_DEBUG("Caught signal: %d\n", sig);
 
   /* TODO: TX_KILLED should be also allowed */
-  if (tx == NULL || tx->attr.no_retry || GET_STATUS(tx->status) != TX_ACTIVE) {
+  if (tx == NULL || tx->attr.no_retry || GET_STATUS(tx->status) != TX_ACTIVE_BIT) {
     /* There is not much we can do: execution will restart at faulty load */
     fprintf(stderr, "Error: invalid memory accessed and no longjmp destination\n");
     exit(1);
@@ -978,7 +978,7 @@ int_stm_set_irrevocable(stm_tx_t *tx, int serial)
 # if CM == CM_MODULAR
    /* We might still abort if we cannot set status (e.g., we are being killed) */
     t = tx->status;
-    if (GET_STATUS(t) != TX_ACTIVE || ATOMIC_CAS_FULL(&tx->status, t, t + (TX_IRREVOCABLE - TX_ACTIVE)) == 0) {
+    if (GET_STATUS(t) != TX_ACTIVE_BIT || ATOMIC_CAS_FULL(&tx->status, t, t + (TX_IRREVOCABLE - TX_ACTIVE_BIT)) == 0) {
       stm_rollback(tx, STM_ABORT_KILLED);
       return 0;
     }
