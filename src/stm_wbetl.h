@@ -63,8 +63,7 @@ stm_wbetl_validate(stm_tx_t *tx)
           if (l != LOCK_UNIT) {
 # endif /* UNIT_TX */
             /* Call conflict callback */
-            stm_tx_t *other = ((w_entry_t *)LOCK_GET_ADDR(l))->tx;
-            _tinystm.conflict_cb(tx, other);
+            _tinystm.conflict_cb(tx, w->tx);
 # ifdef UNIT_TX
           }
 # endif /* UNIT_TX */
@@ -314,8 +313,7 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
       if (l != LOCK_UNIT) {
 #  endif /* UNIT_TX */
         /* Call conflict callback */
-        stm_tx_t *other = ((w_entry_t *)LOCK_GET_ADDR(l))->tx;
-        _tinystm.conflict_cb(tx, other);
+        _tinystm.conflict_cb(tx, w->tx);
 #  ifdef UNIT_TX
       }
 #  endif /* UNIT_TX */
@@ -509,8 +507,7 @@ stm_wbetl_read_visible(stm_tx_t *tx, volatile stm_word_t *addr)
       if (l != LOCK_UNIT) {
 #  endif /* UNIT_TX */
         /* Call conflict callback */
-        stm_tx_t *other = ((w_entry_t *)LOCK_GET_ADDR(l))->tx;
-        _tinystm.conflict_cb(tx, other);
+        _tinystm.conflict_cb(tx, w->tx);
 #  ifdef UNIT_TX
       }
 #  endif /* UNIT_TX */
@@ -695,8 +692,7 @@ stm_wbetl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_w
       if (l != LOCK_UNIT) {
 # endif /* UNIT_TX */
         /* Call conflict callback */
-        stm_tx_t *other = ((w_entry_t *)LOCK_GET_ADDR(l))->tx;
-        _tinystm.conflict_cb(tx, other);
+        _tinystm.conflict_cb(tx, w->tx);
 # ifdef UNIT_TX
       }
 # endif /* UNIT_TX */

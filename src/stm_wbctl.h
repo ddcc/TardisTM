@@ -54,8 +54,7 @@ stm_wbctl_validate(stm_tx_t *tx)
           if (l != LOCK_UNIT) {
 # endif /* UNIT_TX */
             /* Call conflict callback */
-            stm_tx_t *other = ((w_entry_t *)LOCK_GET_ADDR(l))->tx;
-            _tinystm.conflict_cb(tx, other);
+            _tinystm.conflict_cb(tx, w->tx);
 # ifdef UNIT_TX
           }
 # endif /* UNIT_TX */
