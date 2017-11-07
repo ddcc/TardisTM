@@ -126,7 +126,7 @@ __thread long thread_gc = 0;
  * Kill other.
  */
 static stm_tx_policy_t
-cm_aggressive(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict)
+cm_aggressive(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict, entry_t c1, entry_t c2)
 {
   return STM_KILL_OTHER;
 }
@@ -135,7 +135,7 @@ cm_aggressive(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflic
  * Kill self.
  */
 static stm_tx_policy_t
-cm_suicide(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict)
+cm_suicide(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict, entry_t c1, entry_t c2)
 {
   return STM_KILL_SELF;
 }
@@ -144,7 +144,7 @@ cm_suicide(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict)
  * Kill self and wait before restart.
  */
 static stm_tx_policy_t
-cm_delay(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict)
+cm_delay(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict, entry_t c1, entry_t c2)
 {
   return STM_KILL_SELF | STM_DELAY;
 }
@@ -153,7 +153,7 @@ cm_delay(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict)
  * Oldest transaction has priority.
  */
 static stm_tx_policy_t
-cm_timestamp(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict)
+cm_timestamp(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict, entry_t c1, entry_t c2)
 {
   if (me->timestamp < other->timestamp)
     return STM_KILL_OTHER;
@@ -166,7 +166,7 @@ cm_timestamp(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict
  * Transaction with more work done has priority.
  */
 static stm_tx_policy_t
-cm_karma(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict)
+cm_karma(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict, entry_t c1, entry_t c2)
 {
 
   unsigned int me_work, other_work;
@@ -183,7 +183,7 @@ cm_karma(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict)
 
 struct {
   const char *name;
-  stm_tx_policy_t (*f)(stm_tx_t *, stm_tx_t *, stm_tx_conflict_t);
+  stm_tx_policy_t (*f)(stm_tx_t *, stm_tx_t *, stm_tx_conflict_t, entry_t c1, entry_t c2);
 } cms[] = {
   { "aggressive", cm_aggressive },
   { "suicide", cm_suicide },
@@ -610,7 +610,7 @@ stm_set_parameter(const char *name, void *val)
     return 0;
   }
   if (strcmp("cm_function", name) == 0) {
-    _tinystm.contention_manager = (stm_tx_policy_t (*)(stm_tx_t *, stm_tx_t *, stm_tx_conflict_t))val;
+    _tinystm.contention_manager = (stm_tx_policy_t (*)(stm_tx_t *, stm_tx_t *, stm_tx_conflict_t, entry_t, entry_t))val;
     return 1;
   }
   if (strcmp("vr_threshold", name) == 0) {
@@ -911,7 +911,7 @@ stm_get_thread_id(stm_tx_t *tx, pthread_t *id)
  * Set global conflict callback.
  */
 _CALLCONV int
-stm_set_conflict_cb(void (*on_conflict)(stm_tx_t *tx1, stm_tx_t *tx2))
+stm_set_conflict_cb(void (*on_conflict)(stm_tx_t *tx1, stm_tx_t *tx2, entry_t e1, entry_t e2))
 {
   _tinystm.conflict_cb = on_conflict;
   return 1;

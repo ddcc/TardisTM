@@ -63,7 +63,7 @@ stm_wbetl_validate(stm_tx_t *tx)
           if (l != LOCK_UNIT) {
 # endif /* UNIT_TX */
             /* Call conflict callback */
-            _tinystm.conflict_cb(tx, w->tx);
+            _tinystm.conflict_cb(tx, w->tx, ENTRY_FROM_READ(r), ENTRY_FROM_WRITE(w));
 # ifdef UNIT_TX
           }
 # endif /* UNIT_TX */
@@ -74,6 +74,12 @@ stm_wbetl_validate(stm_tx_t *tx)
       /* We own the lock: OK */
     } else {
       if (LOCK_GET_TIMESTAMP(l) != r->version) {
+#ifdef CONFLICT_TRACKING
+        if (_tinystm.conflict_cb != NULL) {
+          /* Call conflict callback */
+          _tinystm.conflict_cb(tx, NULL, ENTRY_FROM_READ(r), 0);
+        }
+#endif /* CONFLICT_TRACKING */
         /* Other version: cannot validate */
         return 0;
       }
@@ -282,7 +288,7 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
         GET_STATUS(t) == TX_IRREVOCABLE ? STM_KILL_SELF :
 #  endif /* IRREVOCABLE_ENABLED */
         GET_STATUS(tx->status) == TX_KILLED ? STM_KILL_SELF :
-        (_tinystm.contention_manager != NULL ? _tinystm.contention_manager(tx, w->tx, STM_RW_CONFLICT) : STM_KILL_SELF);
+        (_tinystm.contention_manager != NULL ? _tinystm.contention_manager(tx, w->tx, STM_RW_CONFLICT, NULL, ENTRY_FROM_WRITE(w)) : STM_KILL_SELF);
       if (decision == STM_KILL_OTHER) {
         /* Kill other */
         if (!stm_kill(tx, w->tx, t)) {
@@ -312,7 +318,7 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
       if (l != LOCK_UNIT) {
 #  endif /* UNIT_TX */
         /* Call conflict callback */
-        _tinystm.conflict_cb(tx, w->tx);
+        _tinystm.conflict_cb(tx, w->tx, ENTRY_FROM_WRITE(w), 0);
 #  ifdef UNIT_TX
       }
 #  endif /* UNIT_TX */
@@ -472,7 +478,7 @@ stm_wbetl_read_visible(stm_tx_t *tx, volatile stm_word_t *addr)
         GET_STATUS(t) == TX_IRREVOCABLE ? STM_KILL_SELF :
 # endif /* IRREVOCABLE_ENABLED */
         GET_STATUS(tx->status) == TX_KILLED ? STM_KILL_SELF :
-        (_tinystm.contention_manager != NULL ? _tinystm.contention_manager(tx, w->tx, (LOCK_GET_WRITE(l) ? STM_WR_CONFLICT : STM_RR_CONFLICT)) : STM_KILL_SELF);
+        (_tinystm.contention_manager != NULL ? _tinystm.contention_manager(tx, w->tx, (LOCK_GET_WRITE(l) ? STM_WR_CONFLICT : STM_RR_CONFLICT), ENTRY_FROM_WRITE(w), NULL) : STM_KILL_SELF);
       if (decision == STM_KILL_OTHER) {
         /* Kill other */
         if (!stm_kill(tx, w->tx, t)) {
@@ -495,7 +501,7 @@ stm_wbetl_read_visible(stm_tx_t *tx, volatile stm_word_t *addr)
       if (l != LOCK_UNIT) {
 #  endif /* UNIT_TX */
         /* Call conflict callback */
-        _tinystm.conflict_cb(tx, w->tx);
+        _tinystm.conflict_cb(tx, w->tx, ENTRY_FROM_WRITE(w), 0);
 #  ifdef UNIT_TX
       }
 #  endif /* UNIT_TX */
@@ -653,7 +659,7 @@ stm_wbetl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_w
         GET_STATUS(t) == TX_IRREVOCABLE ? STM_KILL_SELF :
 # endif /* IRREVOCABLE_ENABLED */
         GET_STATUS(tx->status) == TX_KILLED ? STM_KILL_SELF :
-        (_tinystm.contention_manager != NULL ? _tinystm.contention_manager(tx, w->tx, STM_WW_CONFLICT) : STM_KILL_SELF);
+        (_tinystm.contention_manager != NULL ? _tinystm.contention_manager(tx, w->tx, STM_WW_CONFLICT, ENTRY_FROM_WRITE(w), NULL) : STM_KILL_SELF);
       if (decision == STM_KILL_OTHER) {
         /* Kill other */
         if (!stm_kill(tx, w->tx, t)) {
@@ -680,7 +686,7 @@ stm_wbetl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_w
       if (l != LOCK_UNIT) {
 # endif /* UNIT_TX */
         /* Call conflict callback */
-        _tinystm.conflict_cb(tx, w->tx);
+        _tinystm.conflict_cb(tx, w->tx, ENTRY_FROM_WRITE(w), 0);
 # ifdef UNIT_TX
       }
 # endif /* UNIT_TX */

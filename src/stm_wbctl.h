@@ -54,7 +54,7 @@ stm_wbctl_validate(stm_tx_t *tx)
           if (l != LOCK_UNIT) {
 # endif /* UNIT_TX */
             /* Call conflict callback */
-            _tinystm.conflict_cb(tx, w->tx);
+            _tinystm.conflict_cb(tx, w->tx, ENTRY_FROM_READ(r), ENTRY_FROM_WRITE(w));
 # ifdef UNIT_TX
           }
 # endif /* UNIT_TX */
@@ -64,11 +64,23 @@ stm_wbctl_validate(stm_tx_t *tx)
       }
       /* We own the lock: OK */
       if (w->version != r->version) {
+#ifdef CONFLICT_TRACKING
+        if (_tinystm.conflict_cb != NULL) {
+          /* Call conflict callback */
+          _tinystm.conflict_cb(tx, w->tx, ENTRY_FROM_READ(r), ENTRY_FROM_WRITE(w));
+        }
+#endif /* CONFLICT_TRACKING */
         /* Other version: cannot validate */
         return 0;
       }
     } else {
       if (LOCK_GET_TIMESTAMP(l) != r->version) {
+#ifdef CONFLICT_TRACKING
+        if (_tinystm.conflict_cb != NULL) {
+          /* Call conflict callback */
+          _tinystm.conflict_cb(tx, NULL, ENTRY_FROM_READ(r), 0);
+        }
+#endif /* CONFLICT_TRACKING */
         /* Other version: cannot validate */
         return 0;
       }
@@ -138,18 +150,18 @@ stm_wbctl_read(stm_tx_t *tx, volatile stm_word_t *addr)
   volatile stm_word_t *lock;
   stm_word_t l, l2, value, version;
   r_entry_t *r;
-  w_entry_t *written = NULL;
+  w_entry_t *w;
 
   PRINT_DEBUG2("==> stm_wbctl_read(t=%p[%lu-%lu],a=%p)\n", tx, (unsigned long)tx->start, (unsigned long)tx->end, addr);
 
   assert(IS_ACTIVE(tx->status));
 
   /* Did we previously write the same address? */
-  written = stm_has_written(tx, addr);
-  if (written != NULL) {
+  w = stm_has_written(tx, addr);
+  if (w != NULL) {
     /* Yes: get value from write set if possible */
-    if (written->mask == ~(stm_word_t)0) {
-      value = written->value;
+    if (w->mask == ~(stm_word_t)0) {
+      value = w->value;
       /* No need to add to read set */
       return value;
     }
@@ -208,8 +220,8 @@ stm_wbctl_read(stm_tx_t *tx, volatile stm_word_t *addr)
   /* We have a good version: add to read set (update transactions) and return value */
 
   /* Did we previously write the same address? */
-  if (written != NULL) {
-    value = (value & ~written->mask) | (written->value & written->mask);
+  if (w != NULL) {
+    value = (value & ~w->mask) | (w->value & w->mask);
     /* Must still add to read set */
   }
 #ifdef READ_LOCKED_DATA

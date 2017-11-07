@@ -66,7 +66,7 @@ static void mod_order_on_commit(const struct stm_tx *tx, const void *arg)
   ATOMIC_FETCH_INC_FULL(&mod_order_ts_commit);
 }
 
-static int mod_order_cm(struct stm_tx *tx, struct stm_tx *other_tx, stm_tx_conflict_t conflict)
+static int mod_order_cm(struct stm_tx *tx, struct stm_tx *other_tx, stm_tx_conflict_t conflict, entry_t e1, entry_t e2)
 {
   stm_word_t my_order = (stm_word_t)stm_get_specific_tx(tx, mod_order_key);
   stm_word_t other_order = (stm_word_t)stm_get_specific_tx(other_tx, mod_order_key);

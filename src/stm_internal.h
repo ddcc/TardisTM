@@ -278,6 +278,14 @@ typedef enum {                                /* Transaction status */
 # define MAX_SPECIFIC                   7
 #endif /* MAX_SPECIFIC */
 
+/* Sum type of read/write set entry */
+typedef uintptr_t entry_t;
+#define ENTRY_IS_READ(c)                (c & 1)
+#define ENTRY_IS_WRITE(c)               (!ENTRY_IS_READ(c))
+#define ENTRY_GET_READ(c)               ((struct r_entry *)(c & ~1))
+#define ENTRY_GET_WRITE(c)              ((struct w_entry *)c)
+#define ENTRY_FROM_READ(r)              ((entry_t)(r) | 1)
+#define ENTRY_FROM_WRITE(w)             ((entry_t)w)
 
 typedef struct r_entry {                /* Read set entry */
   stm_word_t version;                   /* Version read */
@@ -426,10 +434,10 @@ typedef struct {
   int vr_threshold;                     /* Number of retries before to switch to visible reads. */
 #endif /* CM == CM_MODULAR */
 #ifdef CONFLICT_TRACKING
-  void (*conflict_cb)(stm_tx_t *, stm_tx_t *);
+  void (*conflict_cb)(stm_tx_t *, stm_tx_t *, entry_t, entry_t);
 #endif /* CONFLICT_TRACKING */
 #if CM == CM_MODULAR
-  stm_tx_policy_t (*contention_manager)(stm_tx_t *, stm_tx_t *, stm_tx_conflict_t);
+  stm_tx_policy_t (*contention_manager)(stm_tx_t *, stm_tx_t *, entry_t, entry_t);
 #endif /* CM == CM_MODULAR */
   /* At least twice a cache line (256 bytes to be on the safe side) */
   char padding[CACHELINE_SIZE];
@@ -854,7 +862,7 @@ stm_kill(stm_tx_t *tx, stm_tx_t *other, stm_word_t status)
 
 # ifdef CONFLICT_TRACKING
   if (_tinystm.conflict_cb != NULL)
-    _tinystm.conflict_cb(tx, other);
+    _tinystm.conflict_cb(tx, other, 0, 0);
 # endif /* CONFLICT_TRACKING */
 
 # ifdef IRREVOCABLE_ENABLED
