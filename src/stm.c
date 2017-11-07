@@ -603,15 +603,14 @@ stm_set_parameter(const char *name, void *val)
   if (strcmp("cm_policy", name) == 0) {
     for (i = 0; cms[i].name != NULL; i++) {
       if (strcasecmp(cms[i].name, (const char *)val) == 0) {
-        _tinystm.contention_manager = cms[i].f;
+        _tinystm.conflict_cb = cms[i].f;
         return 1;
       }
     }
     return 0;
   }
   if (strcmp("cm_function", name) == 0) {
-    _tinystm.contention_manager = (stm_tx_policy_t (*)(stm_tx_t *, stm_tx_t *, stm_tx_conflict_t, entry_t, entry_t))val;
-    return 1;
+    _tinystm.conflict_cb = (const stm_tx_policy_t (*)(const stm_tx_t *, const stm_tx_t *, const stm_tx_conflict_t, const entry_t, const entry_t))val;
   }
   if (strcmp("vr_threshold", name) == 0) {
     _tinystm.vr_threshold = *(int *)val;
@@ -904,16 +903,6 @@ _CALLCONV int
 stm_get_thread_id(stm_tx_t *tx, pthread_t *id)
 {
   *id = tx->thread_id;
-  return 1;
-}
-
-/*
- * Set global conflict callback.
- */
-_CALLCONV int
-stm_set_conflict_cb(void (*on_conflict)(stm_tx_t *tx1, stm_tx_t *tx2, entry_t e1, entry_t e2))
-{
-  _tinystm.conflict_cb = on_conflict;
   return 1;
 }
 #endif /* CONFLICT_TRACKING */

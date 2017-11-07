@@ -54,7 +54,7 @@ stm_wt_validate(stm_tx_t *tx)
           if (l != LOCK_UNIT) {
 # endif /* UNIT_TX */
             /* Call conflict callback */
-            _tinystm.conflict_cb(tx, w->tx, ENTRY_FROM_WRITE(w), ENTRY_FROM_READ(r));
+            _tinystm.conflict_cb(tx, w->tx, STM_RD_VALIDATE, ENTRY_FROM_WRITE(w), ENTRY_FROM_READ(r));
 # ifdef UNIT_TX
           }
 # endif /* UNIT_TX */
@@ -68,7 +68,7 @@ stm_wt_validate(stm_tx_t *tx)
 #ifdef CONFLICT_TRACKING
         if (_tinystm.conflict_cb != NULL) {
           /* Call conflict callback */
-          _tinystm.conflict_cb(tx, NULL, ENTRY_FROM_READ(r), 0);
+          _tinystm.conflict_cb(tx, NULL, STM_RD_VALIDATE, ENTRY_FROM_READ(r), 0);
         }
 #endif /* CONFLICT_TRACKING */
         /* Other version: cannot validate */
@@ -251,7 +251,7 @@ stm_wt_read(stm_tx_t *tx, volatile stm_word_t *addr)
       if (l != LOCK_UNIT) {
 #  endif /* UNIT_TX */
         /* Call conflict callback */
-        _tinystm.conflict_cb(tx, w->tx, ENTRY_FROM_WRITE(w), 0);
+        _tinystm.conflict_cb(tx, w->tx, STM_RW_CONFLICT, ENTRY_FROM_WRITE(w), 0);
 #  ifdef UNIT_TX
       }
 #  endif /* UNIT_TX */
@@ -349,7 +349,7 @@ stm_wt_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_word
       if (l != LOCK_UNIT) {
 #  endif /* UNIT_TX */
         /* Call conflict callback */
-        _tinystm.conflict_cb(tx, w->tx, ENTRY_FROM_WRITE(w), 0);
+        _tinystm.conflict_cb(tx, w->tx, STM_WW_CONFLICT, ENTRY_FROM_WRITE(w), 0);
 #  ifdef UNIT_TX
       }
 #  endif /* UNIT_TX */
@@ -385,7 +385,7 @@ stm_wt_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_word
         if (l != LOCK_UNIT) {
 # endif /* UNIT_TX */
           /* Call conflict callback */
-          _tinystm.conflict_cb(tx, NULL ENTRY_FROM_READ(r), 0);
+          _tinystm.conflict_cb(tx, NULL, STM_WR_VALIDATE, ENTRY_FROM_READ(r), 0);
 # ifdef UNIT_TX
         }
 # endif /* UNIT_TX */

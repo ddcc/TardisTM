@@ -408,6 +408,9 @@ typedef struct stm_tx {                 /* Transaction descriptor */
 typedef struct {
   volatile stm_word_t locks[LOCK_ARRAY_SIZE] ALIGNED;
   volatile stm_word_t gclock[512 / sizeof(stm_word_t)] ALIGNED;
+#ifdef CONFLICT_TRACKING
+  const stm_tx_policy_t (*conflict_cb)(const stm_tx_t *, const stm_tx_t *, const stm_tx_conflict_t, const entry_t, const entry_t);
+#endif /* CONFLICT_TRACKING */
   unsigned int nb_specific;             /* Number of specific slots used (<= MAX_SPECIFIC) */
   unsigned int nb_init_cb;
   cb_entry1_t init_cb[MAX_CB];          /* Init thread callbacks */
@@ -432,12 +435,6 @@ typedef struct {
   pthread_cond_t quiesce_cond;          /* Condition variable to support quiescence */
 #if CM == CM_MODULAR
   int vr_threshold;                     /* Number of retries before to switch to visible reads. */
-#endif /* CM == CM_MODULAR */
-#ifdef CONFLICT_TRACKING
-  void (*conflict_cb)(stm_tx_t *, stm_tx_t *, entry_t, entry_t);
-#endif /* CONFLICT_TRACKING */
-#if CM == CM_MODULAR
-  stm_tx_policy_t (*contention_manager)(stm_tx_t *, stm_tx_t *, entry_t, entry_t);
 #endif /* CM == CM_MODULAR */
   /* At least twice a cache line (256 bytes to be on the safe side) */
   char padding[CACHELINE_SIZE];
@@ -862,7 +859,7 @@ stm_kill(stm_tx_t *tx, stm_tx_t *other, stm_word_t status)
 
 # ifdef CONFLICT_TRACKING
   if (_tinystm.conflict_cb != NULL)
-    _tinystm.conflict_cb(tx, other, 0, 0);
+    _tinystm.conflict_cb(tx, other, STM_KILLED, 0, 0);
 # endif /* CONFLICT_TRACKING */
 
 # ifdef IRREVOCABLE_ENABLED

@@ -54,7 +54,7 @@ stm_wbctl_validate(stm_tx_t *tx)
           if (l != LOCK_UNIT) {
 # endif /* UNIT_TX */
             /* Call conflict callback */
-            _tinystm.conflict_cb(tx, w->tx, ENTRY_FROM_READ(r), ENTRY_FROM_WRITE(w));
+            _tinystm.conflict_cb(tx, w->tx, STM_RD_VALIDATE, ENTRY_FROM_READ(r), ENTRY_FROM_WRITE(w));
 # ifdef UNIT_TX
           }
 # endif /* UNIT_TX */
@@ -67,7 +67,7 @@ stm_wbctl_validate(stm_tx_t *tx)
 #ifdef CONFLICT_TRACKING
         if (_tinystm.conflict_cb != NULL) {
           /* Call conflict callback */
-          _tinystm.conflict_cb(tx, w->tx, ENTRY_FROM_READ(r), ENTRY_FROM_WRITE(w));
+          _tinystm.conflict_cb(tx, w->tx, STM_RD_VALIDATE, ENTRY_FROM_READ(r), ENTRY_FROM_WRITE(w));
         }
 #endif /* CONFLICT_TRACKING */
         /* Other version: cannot validate */
@@ -78,7 +78,7 @@ stm_wbctl_validate(stm_tx_t *tx)
 #ifdef CONFLICT_TRACKING
         if (_tinystm.conflict_cb != NULL) {
           /* Call conflict callback */
-          _tinystm.conflict_cb(tx, NULL, ENTRY_FROM_READ(r), 0);
+          _tinystm.conflict_cb(tx, NULL, STM_RD_VALIDATE, ENTRY_FROM_READ(r), 0);
         }
 #endif /* CONFLICT_TRACKING */
         /* Other version: cannot validate */
@@ -284,7 +284,7 @@ stm_wbctl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_w
 #ifdef CONFLICT_TRACKING
       if (_tinystm.conflict_cb != NULL) {
         /* Call conflict callback */
-        _tinystm.conflict_cb(tx, NULL, ENTRY_FROM_READ(r), 0);
+        _tinystm.conflict_cb(tx, NULL, STM_WR_VALIDATE, ENTRY_FROM_READ(r), 0);
       }
 #endif /* CONFLICT_TRACKING */
       stm_rollback(tx, STM_ABORT_VAL_WRITE);
@@ -403,7 +403,7 @@ stm_wbctl_commit(stm_tx_t *tx)
 #ifdef CONFLICT_TRACKING
       if (_tinystm.conflict_cb != NULL) {
         /* Call conflict callback */
-        _tinystm.conflict_cb(tx, ((w_entry_t*)LOCK_GET_ADDR(l))->tx, ENTRY_FROM_WRITE(w), ENTRY_FROM_WRITE(LOCK_GET_ADDR(l)));
+        _tinystm.conflict_cb(tx, ((w_entry_t*)LOCK_GET_ADDR(l))->tx, STM_WW_CONFLICT, ENTRY_FROM_WRITE(w), ENTRY_FROM_WRITE(LOCK_GET_ADDR(l)));
       }
 #endif /* CONFLICT_TRACKING */
       /* Abort self */
