@@ -245,7 +245,6 @@ stm_wt_read(stm_tx_t *tx, volatile stm_word_t *addr)
     tx->c_lock = lock;
 # endif /* CM == CM_DELAY */
 
-    /* Abort */
 # ifdef CONFLICT_TRACKING
     if (_tinystm.conflict_cb != NULL) {
 #  ifdef UNIT_TX
@@ -258,7 +257,7 @@ stm_wt_read(stm_tx_t *tx, volatile stm_word_t *addr)
 #  endif /* UNIT_TX */
     }
 # endif /* CONFLICT_TRACKING */
-
+    /* Abort */
     stm_rollback(tx, STM_ABORT_RW_CONFLICT);
     return 0;
   }
@@ -269,8 +268,8 @@ stm_wt_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_word
 {
   volatile stm_word_t *lock;
   stm_word_t l, version;
-  w_entry_t *w;
-  w_entry_t *prev = NULL;
+  r_entry_t *r;
+  w_entry_t *w, *prev = NULL;
 
   PRINT_DEBUG2("==> stm_wt_write(t=%p[%lu-%lu],a=%p,d=%p-%lu,m=0x%lx)\n",
                tx, (unsigned long)tx->start, (unsigned long)tx->end, addr, (void *)value, (unsigned long)value, (unsigned long)mask);
@@ -344,7 +343,6 @@ stm_wt_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_word
     tx->c_lock = lock;
 # endif /* CM == CM_DELAY */
 
-    /* Abort */
 # ifdef CONFLICT_TRACKING
     if (_tinystm.conflict_cb != NULL) {
 #  ifdef UNIT_TX
@@ -357,7 +355,7 @@ stm_wt_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_word
 #  endif /* UNIT_TX */
     }
 # endif /* CONFLICT_TRACKING */
-
+    /* Abort */
     stm_rollback(tx, STM_ABORT_WW_CONFLICT);
     return NULL;
   }
@@ -378,9 +376,21 @@ stm_wt_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_word
       return NULL;
     }
 #endif /* UNIT_TX */
-    if (stm_has_read(tx, lock) != NULL) {
+    if ((r = stm_has_read(tx, lock)) != NULL) {
       /* Read version must be older (otherwise, tx->end >= version) */
       /* Not much we can do: abort */
+#ifdef CONFLICT_TRACKING
+      if (_tinystm.conflict_cb != NULL) {
+# ifdef UNIT_TX
+        if (l != LOCK_UNIT) {
+# endif /* UNIT_TX */
+          /* Call conflict callback */
+          _tinystm.conflict_cb(tx, NULL ENTRY_FROM_READ(r), 0);
+# ifdef UNIT_TX
+        }
+# endif /* UNIT_TX */
+      }
+#endif /* CONFLICT_TRACKING */
       stm_rollback(tx, STM_ABORT_VAL_WRITE);
       return NULL;
     }

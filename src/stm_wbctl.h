@@ -237,6 +237,7 @@ stm_wbctl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_w
 {
   volatile stm_word_t *lock;
   stm_word_t l, version;
+  r_entry_t *r;
   w_entry_t *w;
 
   PRINT_DEBUG2("==> stm_wbctl_write(t=%p[%lu-%lu],a=%p,d=%p-%lu,m=0x%lx)\n",
@@ -277,9 +278,15 @@ stm_wbctl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_w
       return NULL;
     }
 #endif /* UNIT_TX */
-    if (stm_has_read(tx, lock) != NULL) {
+    if ((r = stm_has_read(tx, lock)) != NULL) {
       /* Read version must be older (otherwise, tx->end >= version) */
       /* Not much we can do: abort */
+#ifdef CONFLICT_TRACKING
+      if (_tinystm.conflict_cb != NULL) {
+        /* Call conflict callback */
+        _tinystm.conflict_cb(tx, NULL, ENTRY_FROM_READ(r), 0);
+      }
+#endif /* CONFLICT_TRACKING */
       stm_rollback(tx, STM_ABORT_VAL_WRITE);
       return NULL;
     }
@@ -393,6 +400,12 @@ stm_wbctl_commit(stm_tx_t *tx)
       }
 #endif /* IRREVOCABLE_ENABLED */
 
+#ifdef CONFLICT_TRACKING
+      if (_tinystm.conflict_cb != NULL) {
+        /* Call conflict callback */
+        _tinystm.conflict_cb(tx, ((w_entry_t*)LOCK_GET_ADDR(l))->tx, ENTRY_FROM_WRITE(w), ENTRY_FROM_WRITE(LOCK_GET_ADDR(l)));
+      }
+#endif /* CONFLICT_TRACKING */
       /* Abort self */
       stm_rollback(tx, STM_ABORT_WW_CONFLICT);
       return 0;
