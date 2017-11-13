@@ -101,7 +101,7 @@ static struct {                         /* Descriptors of active threads */
   volatile gc_word_t nb_active;         /* Number of used thread slots */
 } gc_threads;
 
-static gc_word_t (*gc_current_epoch)(void); /* Read the value of the current epoch */
+static gc_word_t (*gc_current_epoch)(void) _CALLCONV; /* Read the value of the current epoch */
 
 /* ################################################################### *
  * STATIC
@@ -216,7 +216,7 @@ void gc_cleanup_thread(int idx, gc_word_t min)
 /*
  * Initialize GC library (to be called from main thread).
  */
-void gc_init(gc_word_t (*epoch)(void))
+void gc_init(gc_word_t (*epoch)(void) _CALLCONV)
 {
   int i;
 

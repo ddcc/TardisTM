@@ -144,18 +144,13 @@ stm_wt_rollback(stm_tx_t *tx)
 }
 
 static INLINE void
-stm_wt_add_to_rs(stm_tx_t *tx, stm_word_t version, volatile stm_word_t *lock)
+stm_wt_add_to_rs(stm_tx_t *tx, stm_word_t value, stm_word_t version, volatile stm_word_t *lock)
 {
   r_entry_t *r;
 
   /* No need to add to read set for read-only transaction */
   if (tx->attr.read_only)
     return;
-
-#ifdef NO_DUPLICATES_IN_RW_SETS
-  if (stm_has_read(tx, lock) != NULL)
-    return value;
-#endif /* NO_DUPLICATES_IN_RW_SETS */
 
   /* Add address and version to read set */
   if (tx->r_set.nb_entries == tx->r_set.size)
@@ -203,8 +198,13 @@ stm_wt_read(stm_tx_t *tx, volatile stm_word_t *addr)
     /* Check timestamp */
     version = LOCK_GET_TIMESTAMP(l);
 
+#ifdef NO_DUPLICATES_IN_RW_SETS
+    if (stm_has_read(tx, lock) != NULL)
+      return value;
+#endif /* NO_DUPLICATES_IN_RW_SETS */
+
     /* Add to read set (update transactions only) */
-    stm_wt_add_to_rs(tx, version, lock);
+    stm_wt_add_to_rs(tx, value, version, lock);
 
     /* Valid version? */
     if (unlikely(version > tx->end)) {
@@ -542,8 +542,8 @@ stm_wt_commit(stm_tx_t *tx)
     goto release_locks;
 #endif /* IRREVOCABLE_ENABLED */
 
-  /* Try to validate (only if a concurrent transaction has committed since tx->start) */
-  if (unlikely(tx->start != t - 1 && !stm_wt_validate(tx))) {
+  /* Try to validate (only if a concurrent transaction has committed since tx->end) */
+  if (unlikely(tx->end != t - 1 && !stm_wt_validate(tx))) {
     /* Cannot commit */
     stm_rollback(tx, STM_ABORT_VALIDATE);
     return 0;

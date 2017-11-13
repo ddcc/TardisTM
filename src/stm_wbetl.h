@@ -284,7 +284,7 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
         GET_STATUS(t) == TX_IRREVOCABLE ? KILL_SELF :
 #  endif /* IRREVOCABLE_ENABLED */
         GET_STATUS(tx->status) == TX_KILLED ? KILL_SELF :
-        (_tinystm.contention_manager != NULL ? _tinystm.contention_manager(tx, w->tx, WR_CONFLICT) : KILL_SELF);
+        (_tinystm.contention_manager != NULL ? _tinystm.contention_manager(tx, w->tx, RW_CONFLICT) : KILL_SELF);
       if (decision == KILL_OTHER) {
         /* Kill other */
         if (!stm_kill(tx, w->tx, t)) {
@@ -904,8 +904,8 @@ stm_wbetl_commit(stm_tx_t *tx)
     goto release_locks;
 #endif /* IRREVOCABLE_ENABLED */
 
-  /* Try to validate (only if a concurrent transaction has committed since tx->start) */
-  if (unlikely(tx->start != t - 1 && !stm_wbetl_validate(tx))) {
+  /* Try to validate (only if a concurrent transaction has committed since tx->end) */
+  if (unlikely(tx->end != t - 1 && !stm_wbetl_validate(tx))) {
     /* Cannot commit */
 #if CM == CM_MODULAR
     /* Abort caused by invisible reads */

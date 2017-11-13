@@ -172,19 +172,20 @@ stm_wbctl_read(stm_tx_t *tx, volatile stm_word_t *addr)
     goto restart;
   } else {
     /* Not locked */
-    value = ATOMIC_LOAD_ACQ(addr);
+#ifdef IRREVOCABLE_ENABLED
+    /* In irrevocable mode, no need check timestamp nor add entry to read set */
+    if (tx->irrevocable) {
+      value = ATOMIC_LOAD_ACQ(addr);
+      goto return_value;
+    }
+#endif /* IRREVOCABLE_ENABLED */
+    /* Check timestamp */
+    version = LOCK_GET_TIMESTAMP(l);
     l2 = ATOMIC_LOAD_ACQ(lock);
     if (l != l2) {
       l = l2;
       goto restart_no_load;
     }
-#ifdef IRREVOCABLE_ENABLED
-    /* In irrevocable mode, no need check timestamp nor add entry to read set */
-    if (tx->irrevocable)
-      goto return_value;
-#endif /* IRREVOCABLE_ENABLED */
-    /* Check timestamp */
-    version = LOCK_GET_TIMESTAMP(l);
     /* Valid version? */
     if (version > tx->end) {
       /* No: try to extend first (except for read-only transactions: no read set) */
@@ -193,16 +194,17 @@ stm_wbctl_read(stm_tx_t *tx, volatile stm_word_t *addr)
         stm_rollback(tx, STM_ABORT_VAL_READ);
         return 0;
       }
-      /* Verify that version has not been overwritten (read value has not
-       * yet been added to read set and may have not been checked during
-       * extend) */
-      l = ATOMIC_LOAD_ACQ(lock);
-      if (l != l2) {
-        l = l2;
-        goto restart_no_load;
-      }
-      /* Worked: we now have a good version (version <= tx->end) */
     }
+    value = ATOMIC_LOAD_ACQ(addr);
+    /* Verify that version has not been overwritten (read value has not
+     * yet been added to read set and may have not been checked during
+     * extend) */
+    l2 = ATOMIC_LOAD_ACQ(lock);
+    if (l != l2) {
+      l = l2;
+      goto restart_no_load;
+    }
+    /* Worked: we now have a good version (version <= tx->end) */
   }
   /* We have a good version: add to read set (update transactions) and return value */
 
@@ -360,15 +362,12 @@ stm_wbctl_commit(stm_tx_t *tx)
 {
   w_entry_t *w;
   stm_word_t t;
-  int i;
   stm_word_t l, value;
 
   PRINT_DEBUG("==> stm_wbctl_commit(%p[%lu-%lu])\n", tx, (unsigned long)tx->start, (unsigned long)tx->end);
 
   /* Acquire locks (in reverse order) */
-  w = tx->w_set.entries + tx->w_set.nb_entries;
-  do {
-    w--;
+  for (w = tx->w_set.entries + tx->w_set.nb_entries - 1; w >= tx->w_set.entries; --w) {
     /* Try to acquire lock */
  restart:
     l = ATOMIC_LOAD(w->lock);
@@ -405,7 +404,7 @@ stm_wbctl_commit(stm_tx_t *tx)
     /* Store version for validation of read set */
     w->version = LOCK_GET_TIMESTAMP(l);
     tx->w_set.nb_acquired++;
-  } while (w > tx->w_set.entries);
+  }
 
 #ifdef IRREVOCABLE_ENABLED
   /* Verify if there is an irrevocable transaction once all locks have been acquired */
@@ -437,8 +436,8 @@ stm_wbctl_commit(stm_tx_t *tx)
     goto release_locks;
 #endif /* IRREVOCABLE_ENABLED */
 
-  /* Try to validate (only if a concurrent transaction has committed since tx->start) */
-  if (unlikely(tx->start != t - 1 && !stm_wbctl_validate(tx))) {
+  /* Try to validate (only if a concurrent transaction has committed since tx->end) */
+  if (unlikely(tx->end != t - 1 && !stm_wbctl_validate(tx))) {
     /* Cannot commit */
     stm_rollback(tx, STM_ABORT_VALIDATE);
     return 0;
@@ -449,8 +448,7 @@ stm_wbctl_commit(stm_tx_t *tx)
 #endif /* IRREVOCABLE_ENABLED */
 
   /* Install new versions, drop locks and set new timestamp */
-  w = tx->w_set.entries;
-  for (i = tx->w_set.nb_entries; i > 0; i--, w++) {
+  for (w = tx->w_set.entries; w < tx->w_set.entries + tx->w_set.nb_entries; ++w) {
     if (w->mask == ~(stm_word_t)0) {
       ATOMIC_STORE(w->addr, w->value);
     } else if (w->mask != 0) {

@@ -967,9 +967,9 @@ int_stm_set_irrevocable(stm_tx_t *tx, int serial)
       return 0;
     }
 #elif DESIGN == MODULAR
-    if ((tx->attr.id == WRITE_BACK_CTL && stm_wbctl_validate(tx))
-       || (tx->attr.id == WRITE_THROUGH && stm_wt_validate(tx))
-       || (tx->attr.id != WRITE_BACK_CTL && tx->attr.id != WRITE_THROUGH && stm_wbetl_validate(tx))) {
+    if ((tx->attr.id == WRITE_BACK_CTL && !stm_wbctl_validate(tx))
+       || (tx->attr.id == WRITE_THROUGH && !stm_wt_validate(tx))
+       || (tx->attr.id != WRITE_BACK_CTL && tx->attr.id != WRITE_THROUGH && !stm_wbetl_validate(tx))) {
       stm_rollback(tx, STM_ABORT_VALIDATE);
       return 0;
     }
