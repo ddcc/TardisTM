@@ -107,6 +107,9 @@ handle:
       case STM_RETRY:
         goto restart;
       break;
+      case STM_SKIP:
+        continue;
+      break;
       default:
         assert(decision == STM_KILL_SELF);
         return 0;
@@ -327,6 +330,8 @@ retry:
         case STM_RETRY:
           goto retry;
         break;
+        case STM_SKIP:
+        break;
         default:
           assert(decision == STM_KILL_SELF);
           return NULL;
@@ -361,7 +366,7 @@ do_write:
 # endif /* !NDEBUG */
   w->no_drop = 1;
 # ifdef USE_BLOOM_FILTER
-  tx->w_set.bloom |= FILTER_BITS(addr) ;
+  tx->w_set.bloom |= FILTER_BITS(addr);
 # endif /* USE_BLOOM_FILTER */
 
   return w;
@@ -414,6 +419,8 @@ stm_wbctl_commit(stm_tx_t *tx)
 
   PRINT_DEBUG("==> stm_wbctl_commit(%p[%lu-%lu])\n", tx, (unsigned long)tx->start, (unsigned long)tx->end);
 
+  /* Acquire locks on read set */
+relock:
   /* Acquire locks (in reverse order) */
   for (w_entry_t *w = tx->w_set.entries + tx->w_set.nb_entries - 1; w >= tx->w_set.entries; --w) {
     assert(WRITE_POINTER_VALID(tx, w));
@@ -456,6 +463,9 @@ restart:
       switch (decision) {
         case STM_RETRY:
           goto restart;
+        break;
+        case STM_SKIP:
+          continue;
         break;
         default:
           assert(decision == STM_KILL_SELF);
@@ -503,10 +513,16 @@ restart:
 #endif /* IRREVOCABLE_ENABLED */
 
   /* Try to validate (only if a concurrent transaction has committed since tx->end) */
-  if (unlikely(tx->end != l - 1 && !stm_wbctl_validate(tx))) {
-    /* Cannot commit */
-    stm_rollback(tx, STM_ABORT_VAL_COMMIT);
-    return 0;
+  if (unlikely(tx->end != l - 1)) {
+    if (!stm_wbctl_extend(tx)) {
+      /* Cannot commit */
+      stm_rollback(tx, STM_ABORT_VAL_COMMIT);
+      return 0;
+    } else if (!tx->w_set.nb_acquired) {
+      /* Relock all locks and retry */
+      goto relock;
+    }
+    /* No need to relock */
   }
 
 #ifdef IRREVOCABLE_ENABLED

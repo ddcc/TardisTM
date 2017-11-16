@@ -310,9 +310,13 @@ typedef enum {
    */
    STM_RETRY = (1UL << 2),
    /**
+   * Skip this conflict.
+   */
+   STM_SKIP = (1UL << 3),
+   /**
    * Flag: Wait on the lock.
    */
-   STM_DELAY = (1UL << 3),
+   STM_DELAY = (1UL << 4),
 } stm_tx_policy_t;
 
 /* Use index-based references to allow resize of underlying array */
