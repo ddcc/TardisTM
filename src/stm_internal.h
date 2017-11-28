@@ -144,12 +144,14 @@ typedef enum {                                /* Transaction status */
 #if CM == CM_MODULAR
 # define SET_STATUS(s, v)               ATOMIC_STORE_REL(&(s), ((s) & ~(stm_word_t)STATUS_MASK) | (v))
 # define INC_STATUS_COUNTER(s)          ((((s) >> STATUS_BITS) + 1) << STATUS_BITS)
-# define UPDATE_STATUS(s, v)            ATOMIC_STORE_REL(&(s), INC_STATUS_COUNTER(s) | (v))
+# define UPDATE_STATUS_RAW(s, v)        ATOMIC_STORE_REL(&(s), INC_STATUS_COUNTER(s) | (v))
+# define UPDATE_STATUS(s, os, v)        ATOMIC_CAS_FULL(&(s), os, INC_STATUS_COUNTER(os) | (v))
 # define GET_STATUS(s)                  ((s) & STATUS_MASK)
 # define GET_STATUS_COUNTER(s)          ((s) >> STATUS_BITS)
 #else /* CM != CM_MODULAR */
 # define SET_STATUS(s, v)               ((s) = (v))
-# define UPDATE_STATUS(s, v)            ((s) = (v))
+# define UPDATE_STATUS_RAW(s, v)        ((s) = (v))
+# define UPDATE_STATUS(s, os, v)        UPDATE_STATUS_RAW(s, v)
 # define GET_STATUS(s)                  ((s))
 #endif /* CM != CM_MODULAR */
 #define IS_ACTIVE(s)                    ((GET_STATUS(s) & TX_ACTIVE_BIT) == TX_ACTIVE_BIT)
@@ -833,7 +835,7 @@ stm_kill(stm_tx_t *tx, stm_tx_t *other, stm_word_t status)
   }
   assert(IS_ACTIVE(status));
   /* Set status to KILLED */
-  if (ATOMIC_CAS_FULL(&other->status, status, status + TX_KILLING) == 0) {
+  if (UPDATE_STATUS(other->status, status, status + TX_KILLING) == 0) {
     /* Transaction is committing/aborting (or has committed/aborted) */
     c = GET_STATUS_COUNTER(status);
     do {
@@ -928,12 +930,12 @@ int_stm_prepare(stm_tx_t *tx)
   if (unlikely(tx->irrevocable != 0)) {
     assert(!IS_ACTIVE(tx->status));
     stm_set_irrevocable_tx(tx, -1);
-    UPDATE_STATUS(tx->status, TX_IRREVOCABLE);
+    UPDATE_STATUS_RAW(tx->status, TX_IRREVOCABLE);
   } else
-    UPDATE_STATUS(tx->status, TX_ACTIVE_BIT);
+    UPDATE_STATUS_RAW(tx->status, TX_ACTIVE_BIT);
 #else /* ! IRREVOCABLE_ENABLED */
   /* Set status */
-  UPDATE_STATUS(tx->status, TX_ACTIVE_BIT);
+  UPDATE_STATUS_RAW(tx->status, TX_ACTIVE_BIT);
 #endif /* ! IRREVOCABLE_ENABLED */
 
   stm_check_quiesce(tx);
@@ -965,7 +967,7 @@ stm_rollback(stm_tx_t *tx, unsigned int reason)
 #if CM == CM_MODULAR
   /* Set status to ABORTING */
   t = tx->status;
-  if (GET_STATUS(t) == TX_KILLING || (IS_ACTIVE(t) && ATOMIC_CAS_FULL(&tx->status, t, t + TX_ABORTED) == 0)) {
+  if (GET_STATUS(t) == TX_KILLING || (IS_ACTIVE(t) && UPDATE_STATUS(tx->status, t, t + TX_ABORTED) == 0)) {
     /* We have been killed */
     assert(GET_STATUS(tx->status) == TX_KILLING);
     /* Release locks */
@@ -1376,7 +1378,7 @@ int_stm_commit(stm_tx_t *tx)
 #if CM == CM_MODULAR
   /* Set status to COMMITTING */
   t = tx->status;
-  if (GET_STATUS(t) == TX_KILLING || ATOMIC_CAS_FULL(&tx->status, t, t + (TX_COMMITTING - GET_STATUS(t))) == 0) {
+  if (GET_STATUS(t) == TX_KILLING || UPDATE_STATUS(tx->status, t, t + (TX_COMMITTING - GET_STATUS(t))) == 0) {
     /* We have been killed */
     assert(GET_STATUS(tx->status) == TX_KILLING);
     stm_rollback(tx, STM_ABORT_KILLED);

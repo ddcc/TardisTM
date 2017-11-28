@@ -978,7 +978,7 @@ int_stm_set_irrevocable(stm_tx_t *tx, int serial)
 # if CM == CM_MODULAR
    /* We might still abort if we cannot set status (e.g., we are being killed) */
     t = tx->status;
-    if (GET_STATUS(t) != TX_ACTIVE_BIT || ATOMIC_CAS_FULL(&tx->status, t, t + (TX_IRREVOCABLE - TX_ACTIVE_BIT)) == 0) {
+    if (GET_STATUS(t) != TX_ACTIVE_BIT || UPDATE_STATUS(tx->status, t, t + (TX_IRREVOCABLE - TX_ACTIVE_BIT)) == 0) {
       stm_rollback(tx, STM_ABORT_KILLED);
       return 0;
     }

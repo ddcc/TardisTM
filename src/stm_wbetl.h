@@ -131,7 +131,7 @@ stm_wbetl_rollback(stm_tx_t *tx)
 #if CM == CM_MODULAR
   /* Set status to ABORTING */
   t = tx->status;
-  if (GET_STATUS(t) == TX_KILLING || (GET_STATUS(t) == TX_ACTIVE_BIT && ATOMIC_CAS_FULL(&tx->status, t, t + TX_ABORTED) == 0)) {
+  if (GET_STATUS(t) == TX_KILLING || (GET_STATUS(t) == TX_ACTIVE_BIT && UPDATE_STATUS(tx->status, t, t + TX_ABORTED) == 0)) {
     /* We have been killed */
     assert(GET_STATUS(tx->status) == TX_KILLING);
     /* Release locks */
