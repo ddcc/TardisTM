@@ -27,9 +27,11 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <stm.h>
+
 #include "atomic.h"
 #include "utils.h"
 #include "mod_order.h"
+#include "stm_internal.h"
 
 /* XXX Maybe these two could be in the same cacheline. */
 ALIGNED static stm_word_t mod_order_ts_next = 0;
@@ -66,14 +68,15 @@ static void mod_order_on_commit(const struct stm_tx *tx, const void *arg)
   ATOMIC_FETCH_INC_FULL(&mod_order_ts_commit);
 }
 
-static int mod_order_cm(struct stm_tx *tx, struct stm_tx *other_tx, stm_tx_conflict_t conflict, entry_t e1, entry_t e2)
+static int mod_order_cm(const struct stm_tx *tx, const tx_conflict_t *conflict)
 {
+#ifdef CONFLICT_TRACKING
   stm_word_t my_order = (stm_word_t)stm_get_specific_tx(tx, mod_order_key);
-  stm_word_t other_order = (stm_word_t)stm_get_specific_tx(other_tx, mod_order_key);
+  stm_word_t other_order = (stm_word_t)stm_get_specific_tx(conflict->other, mod_order_key);
 
   if (my_order < other_order)
     return STM_KILL_OTHER;
-
+#endif /* CONFLICT_TRACKING */
   return STM_KILL_SELF;
 }
 
@@ -88,10 +91,14 @@ void mod_order_init(void)
     fprintf(stderr, "Could not set callbacks for module 'mod_order'. Exiting.\n");
     goto err;
   }
+#ifdef CONFLICT_TRACKING
   if (stm_set_parameter("cm_function", mod_order_cm) == 0) {
     fprintf(stderr, "Could not set contention manager for module 'mod_order'. Exiting.\n");
     goto err;
   }
+#else
+  goto err;
+#endif /* CONFLICT_TRACKING */
   mod_order_key = stm_create_specific();
   if (mod_order_key < 0) {
     fprintf(stderr, "Cannot create specific key\n");

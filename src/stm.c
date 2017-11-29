@@ -62,10 +62,11 @@ static const char *cm_names[] = {
 
 /* Global variables */
 global_t _tinystm =
-    { .nb_specific = 0
-    , .initialized = 0
+    {
+      .nb_specific = 0,
+      .initialized = 0,
 #ifdef IRREVOCABLE_ENABLED
-    , .irrevocable = 0
+      .irrevocable = 0,
 #endif /* IRREVOCABLE_ENABLED */
     };
 
@@ -129,13 +130,13 @@ __thread long thread_gc = 0;
  * Oldest transaction has priority.
  */
 stm_tx_policy_t
-cm_timestamp(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict, entry_t c1, entry_t c2)
+cm_timestamp(struct stm_tx *tx, const tx_conflict_t *conflict)
 {
-  PRINT_DEBUG("==> cm_timestamp(%p[%lu-%lu],%p,%u,%lx,%lx)\n", me, (unsigned long)me->start, (unsigned long)me->end, other, conflict, c1, c2);
+  PRINT_DEBUG("==> cm_timestamp(%p[%lu-%lu],%u,%lx,%lx)\n", tx, (unsigned long)tx->start, (unsigned long)tx->end, conflict->entries.type, conflict->entries.e1, conflict->entries.e2);
 
-  if (me->timestamp < other->timestamp)
+  if (tx->timestamp < conflict->other->timestamp)
     return STM_KILL_OTHER;
-  if (me->timestamp == other->timestamp && (uintptr_t)me < (uintptr_t)other)
+  if (tx->timestamp == conflict->other->timestamp && (uintptr_t)tx < (uintptr_t)conflict->other)
     return STM_KILL_OTHER;
   return STM_KILL_SELF | STM_DELAY;
 }
@@ -146,23 +147,22 @@ cm_timestamp(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict
  * Transaction with more work done has priority.
  */
 stm_tx_policy_t
-cm_karma(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict, entry_t c1, entry_t c2)
+cm_karma(struct stm_tx *tx, const tx_conflict_t *conflict)
 {
   unsigned int me_work, other_work;
 
-  PRINT_DEBUG("==> cm_karma(%p[%lu-%lu],%p,%u,%lx,%lx)\n", me, (unsigned long)me->start, (unsigned long)me->end, other, conflict, c1, c2);
+  PRINT_DEBUG("==> cm_karma(%p[%lu-%lu],%u,%lx,%lx)\n", tx, (unsigned long)tx->start, (unsigned long)tx->end, conflict->entries.type, conflict->entries.e1, conflict->entries.e2);
 
-  me_work = (me->w_set.nb_entries << 1) + me->r_set.nb_entries;
-  other_work = (other->w_set.nb_entries << 1) + other->r_set.nb_entries;
+  me_work = (tx->w_set.nb_entries << 1) + tx->r_set.nb_entries;
+  other_work = (conflict->other->w_set.nb_entries << 1) + conflict->other->r_set.nb_entries;
 
   if (me_work < other_work)
     return STM_KILL_OTHER;
-  if (me_work == other_work && (uintptr_t)me < (uintptr_t)other)
+  if (me_work == other_work && (uintptr_t)tx < (uintptr_t)conflict->other)
     return STM_KILL_OTHER;
   return STM_KILL_SELF;
 }
 #endif /* CM == CM_KARMA */
-
 
 #ifdef SIGNAL_HANDLER
 /*
@@ -569,7 +569,7 @@ stm_set_parameter(const char *name, void *val)
 {
 #ifdef CONFLICT_TRACKING
   if (strcmp("cm_function", name) == 0) {
-    _tinystm.conflict_cb = (const stm_tx_policy_t (*)(const stm_tx_t *, const stm_tx_t *, const stm_tx_conflict_t, const entry_t, const entry_t))val;
+    _tinystm.conflict_cb = (const stm_tx_policy_t (*)(const stm_tx_t *, const tx_conflict_t *))val;
   }
 #endif /* CONFLICT_TRACKING */
 #if DESIGN == WRITE_BACK_ETL_VR

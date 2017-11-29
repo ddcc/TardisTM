@@ -37,14 +37,18 @@ static INLINE int
 stm_wbetl_validate(stm_tx_t *tx)
 {
   r_entry_t *r;
-  int i;
   stm_version_t l;
+  stm_word_t version;
+  stm_tx_policy_t decision;
+  tx_conflict_t conflict;
 
   PRINT_DEBUG("==> stm_wbetl_validate(%p[%lu-%lu])\n", tx, (unsigned long)tx->start, (unsigned long)tx->end);
 
   /* Validate reads */
-  r = tx->r_set.entries;
-  for (i = tx->r_set.nb_entries; i > 0; i--, r++) {
+  for (size_t i = 0; i < tx->r_set.nb_entries; ++i) {
+restart:
+    r = tx->r_set.entries + i;
+    assert(READ_POINTER_VALID(tx, r));
     /* Read lock */
     l = LOCK_READ_ACQ(r->lock);
     /* Unlocked and still the same version? */
@@ -52,38 +56,52 @@ stm_wbetl_validate(stm_tx_t *tx)
       /* Do we own the lock? */
       w_entry_t *w = (w_entry_t *)LOCK_GET_ADDR(l);
       /* Simply check if address falls inside our write set (avoids non-faulting load) */
-      if (!(tx->w_set.entries <= w && w < tx->w_set.entries + tx->w_set.nb_entries))
-      {
-        /* Locked by another transaction: cannot validate */
+      if (WRITE_POINTER_VALID(tx, w))
+        continue;
+
+      /* Locked by another transaction: cannot validate */
+      conflict.entries.type = STM_RW_CONFLICT;
+      conflict.entries.e1 = ENTRY_FROM_READ_POINTER(tx, r);
+      conflict.entries.e2 = ENTRY_FROM_WRITE_POINTER(tx, w);
 #ifdef CONFLICT_TRACKING
-        if (_tinystm.conflict_cb != NULL) {
-# ifdef UNIT_TX
-          if (l != LOCK_UNIT) {
-# endif /* UNIT_TX */
-            /* Call conflict callback */
-            _tinystm.conflict_cb(tx, w->tx, STM_RD_VALIDATE, ENTRY_FROM_READ(r), ENTRY_FROM_WRITE(w));
-# ifdef UNIT_TX
-          }
-# endif /* UNIT_TX */
-        }
+      conflict.other = w->tx;
+      conflict.status = w->tx->status;
 #endif /* CONFLICT_TRACKING */
-        return 0;
-      }
-      /* We own the lock: OK */
+#ifdef CONTENDED_LOCK_TRACKING
+      conflict.lock = w->lock;
+#endif /* CONTENDED_LOCK_TRACKING */
+      decision = stm_conflict_handle(tx, &conflict);
     } else {
-      if (LOCK_GET_TIMESTAMP(l) != r->version) {
-#ifdef CONFLICT_TRACKING
-        if (_tinystm.conflict_cb != NULL) {
-          /* Call conflict callback */
-          _tinystm.conflict_cb(tx, NULL, STM_RD_VALIDATE, ENTRY_FROM_READ(r), 0);
-        }
-#endif /* CONFLICT_TRACKING */
-        /* Other version: cannot validate */
-        return 0;
-      }
       /* Same version: OK */
+      version = LOCK_GET_TIMESTAMP(l);
+      if (version == r->version)
+        continue;
+
+      /* Other version: cannot validate */
+      conflict.entries.type = STM_RD_VALIDATE;
+      conflict.entries.e1 = ENTRY_FROM_READ_POINTER(tx, r);
+      conflict.entries.e2 = ENTRY_INVALID;
+#ifdef CONFLICT_TRACKING
+      conflict.other = NULL;
+      conflict.status = 0;
+#endif /* CONFLICT_TRACKING */
+#ifdef CONTENDED_LOCK_TRACKING
+      conflict.lock = NULL;
+#endif /* CONTENDED_LOCK_TRACKING */
+      decision = stm_conflict_handle(tx, &conflict);
+    }
+
+    switch (decision) {
+      case STM_RETRY:
+        goto restart;
+      break;
+      default:
+        assert(decision == STM_KILL_SELF);
+        return 0;
+      break;
     }
   }
+
   return 1;
 }
 
@@ -170,10 +188,11 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
   stm_word_t value;
   stm_version_t version;
   w_entry_t *w;
-#ifdef TRANSACTION_OPERATIONS
+#if defined(TRANSACTION_OPERATIONS) || defined (CONFLICT_TRACKING)
   stm_word_t t;
+#endif /* TRANSACTION_OPERATIONS || CONFLICT_TRACKING */
+  tx_conflict_t conflict;
   stm_tx_policy_t decision;
-#endif /* TRANSACTION_OPERATIONS */
 
   PRINT_DEBUG2("==> stm_wbetl_read_invisible(t=%p[%lu-%lu],a=%p)\n", tx, (unsigned long)tx->start, (unsigned long)tx->end, addr);
 
@@ -187,15 +206,15 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
   /* Note: we could check for duplicate reads and get value from read set */
 
   /* Read lock, value, lock */
- restart:
+restart:
   l = LOCK_READ_ACQ(lock);
- restart_no_load:
+restart_no_load:
   if (unlikely(LOCK_GET_WRITE(l))) {
     /* Locked */
     /* Do we own the lock? */
     w = (w_entry_t *)LOCK_GET_ADDR(l);
     /* Simply check if address falls inside our write set (avoids non-faulting load) */
-    if (likely(tx->w_set.entries <= w && w < tx->w_set.entries + tx->w_set.nb_entries)) {
+    if (likely(WRITE_POINTER_VALID(tx, w))) {
       /* Yes: did we previously write the same address? */
       while (1) {
         if (addr == w->addr) {
@@ -217,7 +236,7 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
         w = w->next;
       }
       /* No need to add to read set (will remain valid) */
-      return value;
+      goto return_value;
     }
 
 #ifdef UNIT_TX
@@ -278,26 +297,30 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
 #  endif /* TM_STATISTICS2 */
     }
 # endif /* READ_LOCKED_DATA */
+
     if (GET_STATUS(t) == TX_KILLING) {
       /* We can safely steal lock */
       decision = STM_KILL_OTHER;
     } else {
+      conflict.entries.type = STM_RW_CONFLICT;
+      conflict.entries.e1 = ENTRY_FROM_WRITE_POINTER(tx, w);
+      conflict.entries.e2 = ENTRY_INVALID;
+# ifdef CONFLICT_TRACKING
+      conflict.other = w->tx;
+      conflict.status = t;
+# endif /* CONFLICT_TRACKING */
+# ifdef CONTENDED_LOCK_TRACKING
+      conflict.lock = lock;
+# endif /* CONTENDED_LOCK_TRACKING */
       decision =
 # ifdef IRREVOCABLE_ENABLED
         GET_STATUS(tx->status) == TX_IRREVOCABLE ? STM_KILL_OTHER :
 # endif /* IRREVOCABLE_ENABLED */
-# ifdef CONFLICT_TRACKING
-        _tinystm.conflict_cb != NULL ? _tinystm.conflict_cb(tx, w->tx, STM_RW_CONFLICT, ENTRY_FROM_WRITE(w), 0) :
-# endif /* CONFLICT_TRACKING */
-        STM_KILL_SELF;
-      if (decision == STM_KILL_OTHER) {
-        /* Kill other */
-        if (!stm_kill(tx, w->tx, t)) {
-          /* Transaction may have committed or aborted: retry */
-          goto restart;
-        }
-      }
+        stm_conflict_get_decision(tx, &conflict);
+      /* Handle STM_KILL_OTHER immediately */
+      decision = stm_decision_kill_other(tx, &conflict, decision);
     }
+
     if (decision == STM_KILL_OTHER) {
       /* Steal lock */
       l2 = LOCK_SET_TIMESTAMP(w->version);
@@ -306,15 +329,31 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
       l = l2;
       goto restart_no_load;
     }
-    /* Kill self */
+#else /* TRANSACTION_OPERATIONS */
+    conflict.entries.type = STM_RW_CONFLICT;
+    conflict.entries.e1 = ENTRY_FROM_WRITE_POINTER(tx, w);
+    conflict.entries.e2 = ENTRY_INVALID;
+# ifdef CONFLICT_TRACKING
+    conflict.other = w->tx;
+    conflict.status = t;
+# endif /* CONFLICT_TRACKING */
+# ifdef CONTENDED_LOCK_TRACKING
+    conflict.lock = lock;
+# endif /* CONTENDED_LOCK_TRACKING */
+    decision = stm_conflict_get_decision(tx, &conflict);
 #endif /* TRANSACTION_OPERATIONS */
-#ifdef CONTENDED_LOCK_TRACKING
-    if ((decision & STM_DELAY) != 0)
-      tx->c_lock = lock;
-#endif /* CONTENDED_LOCK_TRACKING */
-    /* Abort */
-    stm_rollback(tx, STM_ABORT_RW_CONFLICT);
-    return 0;
+    decision = stm_decision_implement(tx, &conflict, decision);
+
+    switch (decision) {
+      case STM_RETRY:
+        goto restart;
+      break;
+      default:
+        assert(decision == STM_KILL_SELF);
+        stm_rollback(tx, conflict.entries.type);
+        return 0;
+      break;
+    }
   } else {
     /* Not locked */
     value = ATOMIC_LOAD_ACQ(addr);
@@ -334,7 +373,7 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
       version = ((w_entry_t *)LOCK_GET_ADDR(l))->version;
     else
       version = LOCK_GET_TIMESTAMP(l);
-#else
+#else /* TRANSACTION_OPERATIONS */
     version = LOCK_GET_TIMESTAMP(l);
 #endif /* TRANSACTION_OPERATIONS */
     /* Valid version? */
@@ -370,7 +409,7 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
   /* We have a good version: add to read set (update transactions) and return value */
 
 #ifdef READ_LOCKED_DATA
- add_to_read_set:
+add_to_read_set:
 #endif /* READ_LOCKED_DATA */
   stm_add_to_rs(tx, lock, version);
  return_value:
@@ -402,9 +441,9 @@ stm_wbetl_read_visible(stm_tx_t *tx, volatile stm_word_t *addr)
   lock = GET_LOCK(addr);
 
   /* Try to acquire lock */
- restart:
+restart:
   l = LOCK_READ_ACQ(lock);
- restart_no_load:
+restart_no_load:
   if (LOCK_GET_OWNED(l)) {
     /* Locked */
 # ifdef UNIT_TX
@@ -416,7 +455,7 @@ stm_wbetl_read_visible(stm_tx_t *tx, volatile stm_word_t *addr)
     /* Do we own the lock? */
     w = (w_entry_t *)LOCK_GET_ADDR(l);
     /* Simply check if address falls inside our write set (avoids non-faulting load) */
-    if (tx->w_set.entries <= w && w < tx->w_set.entries + tx->w_set.nb_entries) {
+    if (WRITE_POINTER_VALID(tx, w)) {
       /* Yes: is it only read-locked? */
       if (!LOCK_GET_WRITE(l)) {
         /* Yes: get value from memory */
@@ -459,6 +498,18 @@ stm_wbetl_read_visible(stm_tx_t *tx, volatile stm_word_t *addr)
       /* Transaction status has changed: restart the whole procedure */
       goto restart;
     }
+    tx_conflict_t conflict = {
+      .entries.type = LOCK_GET_WRITE(l) ? STM_WR_CONFLICT : STM_RR_CONFLICT,
+      .entries.e1 = ENTRY_FROM_WRITE_POINTER(tx, w),
+      .entries.e2 = ENTRY_INVALID,
+# ifdef CONFLICT_TRACKING
+      .other = w->tx,
+      .status = t,
+# endif /* CONFLICT_TRACKING */
+# ifdef CONTENDED_LOCK_TRACKING
+      .lock = lock,
+# endif /* CONTENDED_LOCK_TRACKING */
+    };
     if (GET_STATUS(t) == TX_KILLING) {
       /* We can safely steal lock */
       decision = STM_KILL_OTHER;
@@ -467,34 +518,30 @@ stm_wbetl_read_visible(stm_tx_t *tx, volatile stm_word_t *addr)
 # ifdef IRREVOCABLE_ENABLED
         GET_STATUS(tx->status) == TX_IRREVOCABLE ? STM_KILL_OTHER :
 # endif /* IRREVOCABLE_ENABLED */
-# ifdef CONFLICT_TRACKING
-        _tinystm.conflict_cb != NULL ? _tinystm.conflict_cb(tx, w->tx, (LOCK_GET_WRITE(l) ? STM_WR_CONFLICT : STM_RR_CONFLICT), ENTRY_FROM_WRITE(w), 0) :
-# endif /* CONFLICT_TRACKING */
-        STM_KILL_SELF;
-      if (decision == STM_KILL_OTHER) {
-        /* Kill other */
-        if (!stm_kill(tx, w->tx, t)) {
-          /* Transaction may have committed or aborted: retry */
-          goto restart;
-        }
-      }
+        stm_conflict_get_decision(tx, &conflict);
+      /* Handle STM_KILL_OTHER immediately */
+      decision = stm_decision_kill_other(tx, &conflict, decision);
     }
+
     if (decision == STM_KILL_OTHER) {
       version = w->version;
       goto acquire;
     }
-    /* Kill self */
-#ifdef CONTENDED_LOCK_TRACKING
-    if ((decision & STM_DELAY) != 0)
-      tx->c_lock = lock;
-#endif /* CONTENDED_LOCK_TRACKING */
-    /* Abort */
-    stm_rollback(tx, (LOCK_GET_WRITE(l) ? STM_ABORT_WR_CONFLICT : STM_ABORT_RR_CONFLICT));
-    return 0;
+    decision = stm_decision_implement(tx, &conflict, decision);
+    switch (decision) {
+      case STM_RETRY:
+        goto restart;
+      break;
+      default:
+        assert(decision == STM_KILL_SELF);
+        stm_rollback(tx, conflict.entries.type);
+        return 0;
+      break;
+    }
   }
   /* Not locked */
   version = LOCK_GET_TIMESTAMP(l);
- acquire:
+acquire:
   /* Acquire lock (ETL) */
   if (tx->w_set.nb_entries == tx->w_set.size)
     stm_rollback(tx, STM_ABORT_EXTEND_WS);
@@ -537,8 +584,9 @@ stm_wbetl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_w
 #ifdef TRANSACTION_OPERATIONS
   stm_version_t l2;
   stm_word_t t;
-  stm_tx_policy_t decision;
 #endif /* TRANSACTION_OPERATIONS */
+  tx_conflict_t conflict;
+  stm_tx_policy_t decision;
 
   PRINT_DEBUG2("==> stm_wbetl_write(t=%p[%lu-%lu],a=%p,d=%p-%lu,m=0x%lx)\n",
                tx, (unsigned long)tx->start, (unsigned long)tx->end, addr, (void *)value, (unsigned long)value, (unsigned long)mask);
@@ -547,9 +595,9 @@ stm_wbetl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_w
   lock = GET_LOCK(addr);
 
   /* Try to acquire lock */
- restart:
+restart:
   l = LOCK_READ_ACQ(lock);
- restart_no_load:
+restart_no_load:
   if (unlikely(LOCK_GET_OWNED(l))) {
     /* Locked */
 
@@ -563,7 +611,7 @@ stm_wbetl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_w
     /* Do we own the lock? */
     w = (w_entry_t *)LOCK_GET_ADDR(l);
     /* Simply check if address falls inside our write set (avoids non-faulting load) */
-    if (likely(tx->w_set.entries <= w && w < tx->w_set.entries + tx->w_set.nb_entries)) {
+    if (likely(WRITE_POINTER_VALID(tx, w))) {
       /* Yes */
 #ifdef TRANSACTION_OPERATIONS
       /* If read-locked: upgrade lock */
@@ -631,6 +679,16 @@ stm_wbetl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_w
       /* Transaction status has changed: restart the whole procedure */
       goto restart;
     }
+    conflict.entries.type = STM_WW_CONFLICT;
+    conflict.entries.e1 = ENTRY_FROM_WRITE_POINTER(tx, w);
+    conflict.entries.e2 = ENTRY_INVALID;
+# ifdef CONFLICT_TRACKING
+    conflict.other = NULL;
+    conflict.status = 0;
+# endif /* CONFLICT_TRACKING */
+# ifdef CONTENDED_LOCK_TRACKING
+    conflict.lock = lock;
+# endif /* CONTENDED_LOCK_TRACKING */
     if (GET_STATUS(t) == TX_KILLING) {
       /* We can safely steal lock */
       decision = STM_KILL_OTHER;
@@ -639,32 +697,40 @@ stm_wbetl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_w
 # ifdef IRREVOCABLE_ENABLED
         GET_STATUS(tx->status) == TX_IRREVOCABLE ? STM_KILL_OTHER :
 # endif /* IRREVOCABLE_ENABLED */
-# ifdef CONFLICT_TRACKING
-        _tinystm.conflict_cb != NULL ? _tinystm.conflict_cb(tx, w->tx, STM_WW_CONFLICT, ENTRY_FROM_WRITE(w), 0) :
-# endif /* CONFLICT_TRACKING */
-        STM_KILL_SELF;
-      if (decision == STM_KILL_OTHER) {
-        /* Kill other */
-        if (!stm_kill(tx, w->tx, t)) {
-          /* Transaction may have committed or aborted: retry */
-          goto restart;
-        }
-      }
+        stm_conflict_get_decision(tx, &conflict);
+      /* Handle STM_KILL_OTHER immediately */
+      decision = stm_decision_kill_other(tx, &conflict, decision);
     }
+
     if (decision == STM_KILL_OTHER) {
       /* Handle write after reads (before CAS) */
       version = w->version;
       goto acquire;
     }
+#else /* TRANSACTION_OPERATIONS */
+    conflict.entries.type = STM_WW_CONFLICT;
+    conflict.entries.e1 = ENTRY_FROM_WRITE_POINTER(tx, w);
+    conflict.entries.e2 = ENTRY_INVALID;
+# ifdef CONFLICT_TRACKING
+    conflict.other = NULL;
+    conflict.status = 0;
+# endif /* CONFLICT_TRACKING */
+# ifdef CONTENDED_LOCK_TRACKING
+    conflict.lock = lock;
+# endif /* CONTENDED_LOCK_TRACKING */
+    decision = stm_conflict_get_decision(tx, &conflict);
 #endif /* TRANSACTION_OPERATIONS */
-    /* Kill self */
-#ifdef CONTENDED_LOCK_TRACKING
-    if ((decision & STM_DELAY) != 0)
-      tx->c_lock = lock;
-#endif /* CONTENDED_LOCK_TRACKING */
-    /* Abort */
-    stm_rollback(tx, STM_ABORT_WW_CONFLICT);
-    return NULL;
+    decision = stm_decision_implement(tx, &conflict, decision);
+    switch (decision) {
+      case STM_RETRY:
+        goto restart;
+      break;
+      default:
+        assert(decision == STM_KILL_SELF);
+        stm_rollback(tx, conflict.entries.type);
+        return 0;
+      break;
+    }
   }
   /* Not locked */
   /* Handle write after reads (before CAS) */
@@ -674,7 +740,7 @@ stm_wbetl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_w
   if (unlikely(tx->irrevocable))
     goto acquire_no_check;
 #endif /* IRREVOCABLE_ENABLED */
- acquire:
+acquire:
   if (unlikely(version > tx->end)) {
     /* We might have read an older version previously */
 #ifdef UNIT_TX
@@ -690,20 +756,30 @@ stm_wbetl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_w
       /* Abort caused by invisible reads */
       tx->visible_reads++;
 #endif /* DESIGN == WRITE_BACK_ETL_VR */
+      conflict.entries.type = STM_WR_VALIDATE;
+      conflict.entries.e1 = ENTRY_FROM_READ_POINTER(tx, r);
+      conflict.entries.e2 = w ? ENTRY_FROM_WRITE_POINTER(tx, w) : ENTRY_INVALID;
 #ifdef CONFLICT_TRACKING
-      if (_tinystm.conflict_cb != NULL) {
-          /* Call conflict callback */
-          _tinystm.conflict_cb(tx, NULL, STM_WR_VALIDATE, ENTRY_FROM_READ(r), 0);
-      }
+      conflict.other = tx;
+      conflict.status = t;
 #endif /* CONFLICT_TRACKING */
-      stm_rollback(tx, STM_ABORT_VAL_WRITE);
-      return NULL;
+#ifdef CONTENDED_LOCK_TRACKING
+      conflict.lock = lock;
+#endif /* CONTENDED_LOCK_TRACKING */
+      decision = stm_conflict_handle_all(tx, &conflict);
+      switch (decision) {
+        case STM_RETRY:
+          goto restart;
+        break;
+        default:
+          assert(decision == STM_KILL_SELF);
+          return NULL;
+        break;
+      }
     }
   }
   /* Acquire lock (ETL) */
-#ifdef IRREVOCABLE_ENABLED
- acquire_no_check:
-#endif /* IRREVOCABLE_ENABLED */
+acquire_no_check:
   if (unlikely(tx->w_set.nb_entries == tx->w_set.size))
     stm_rollback(tx, STM_ABORT_EXTEND_WS);
   w = &tx->w_set.entries[tx->w_set.nb_entries];
@@ -761,7 +837,7 @@ stm_wbetl_RaW(stm_tx_t *tx, volatile stm_word_t *addr)
   assert(LOCK_GET_WRITE(l));
   /* Do we own the lock? */
   w = (w_entry_t *)LOCK_GET_ADDR(l);
-  assert(tx->w_set.entries <= w && w < tx->w_set.entries + tx->w_set.nb_entries);
+  assert(WRITE_POINTER_VALID(tx, w));
 
   /* Read directly from write set entry. */
   return w->value;
@@ -798,7 +874,7 @@ stm_wbetl_WaW(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_wor
   assert(LOCK_GET_WRITE(l));
   /* Do we own the lock? */
   w = (w_entry_t *)LOCK_GET_ADDR(l);
-  assert(tx->w_set.entries <= w && w < tx->w_set.entries + tx->w_set.nb_entries);
+  assert(WRITE_POINTER_VALID(tx, w));
   /* in WaW, mask can never be 0 */
   assert(mask != 0);
   while (1) {
@@ -884,7 +960,7 @@ stm_wbetl_commit(stm_tx_t *tx)
   }
 
 #ifdef IRREVOCABLE_ENABLED
-  release_locks:
+release_locks:
 #endif /* IRREVOCABLE_ENABLED */
 
   /* Install new versions, drop locks and set new timestamp */
@@ -902,7 +978,7 @@ stm_wbetl_commit(stm_tx_t *tx)
     }
   }
 
- end:
+end:
   return 1;
 }
 

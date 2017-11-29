@@ -203,6 +203,16 @@ typedef enum {
   STM_OTHER = 0x0F,
 } stm_tx_conflict_t;
 
+/* Sum type of read/write set entry */
+typedef uintptr_t entry_t;
+
+/* Object representing a transaction read/write set conflict */
+typedef struct {
+  stm_tx_conflict_t type;               /* Type of conflict */
+  entry_t e1;                           /* Read/write set entry 1 */
+  entry_t e2;                           /* Read/write set entry 2 */
+} stm_conflict_t;
+
 /**
  * Reason for aborting (returned by sigsetjmp() upon transaction
  * restart).
@@ -296,10 +306,32 @@ typedef enum {
    */
    STM_KILL_OTHER = (1UL << 1),
    /**
-   * Wait on the lock.
+   * Retry this operation.
    */
-   STM_DELAY = (1UL << 2),
+   STM_RETRY = (1UL << 2),
+   /**
+   * Flag: Wait on the lock.
+   */
+   STM_DELAY = (1UL << 3),
 } stm_tx_policy_t;
+
+/* Use index-based references to allow resize of underlying array */
+/* Use single element struct's for type uniqueness, instead of typedef */
+typedef struct { size_t idx; } stm_read_t;
+typedef struct { size_t idx; } stm_write_t;
+
+#define STM_BAD_IDX                     ((size_t)-1)
+#define STM_INVALID_READ                ((stm_read_t){ .idx = STM_BAD_IDX })
+#define STM_INVALID_WRITE               ((stm_write_t){ .idx = STM_BAD_IDX })
+#define STM_SAME_READ(a, b)             (__builtin_types_compatible_p(typeof(a), stm_read_t) && __builtin_types_compatible_p(typeof(b), stm_read_t) && (a).idx == (b).idx)
+#define STM_SAME_WRITE(a, b)            (__builtin_types_compatible_p(typeof(a), stm_write_t) && __builtin_types_compatible_p(typeof(b), stm_write_t) && (a).idx == (b).idx)
+#define STM_VALID_READ(a)               (__builtin_types_compatible_p(typeof(a), stm_read_t) && !STM_SAME_READ((a), STM_INVALID_READ))
+#define STM_VALID_WRITE(a)              (__builtin_types_compatible_p(typeof(a), stm_write_t) && !STM_SAME_WRITE((a), STM_INVALID_WRITE))
+
+#define ENTRY_INVALID                   (STM_BAD_IDX)
+#define ENTRY_VALID(c)                  (c != ENTRY_INVALID)
+#define ENTRY_GET_READ(c)               ((stm_read_t){ .idx = (c) })
+#define ENTRY_GET_WRITE(c)              ((stm_write_t){ .idx = (c) })
 
 /* ################################################################### *
  * FUNCTIONS

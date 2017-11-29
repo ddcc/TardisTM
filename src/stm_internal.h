@@ -281,6 +281,21 @@ typedef struct {
 #  define GET_LOCK(a)                   (_tinystm.locks + LOCK_IDX(a))
 # endif /* ! LOCK_IDX_SWAP */
 
+/* Use index-based references to allow resize of underlying array */
+#define READ_FROM_POINTER(tx, r)        ((stm_read_t){ .idx = (r) - tx->r_set.entries })
+#define WRITE_FROM_POINTER(tx, w)       ((stm_write_t){ .idx = (w) - tx->w_set.entries })
+#define POINTER_FROM_READ(tx, r)        (__builtin_types_compatible_p(typeof(r), stm_read_t) ? tx->r_set.entries + (r).idx : NULL)
+#define POINTER_FROM_WRITE(tx, w)       (__builtin_types_compatible_p(typeof(w), stm_write_t) ? tx->w_set.entries + (w).idx : NULL)
+#define READ_VALID(tx, r)               (__builtin_types_compatible_p(typeof(r), stm_read_t) && (r).idx < tx->r_set.nb_entries)
+#define WRITE_VALID(tx, w)              (__builtin_types_compatible_p(typeof(w), stm_write_t) && (w).idx < tx->w_set.nb_entries)
+#define READ_POINTER_VALID(tx, r)       ((r) >= tx->r_set.entries && (r) < tx->r_set.entries + tx->r_set.nb_entries)
+#define WRITE_POINTER_VALID(tx, w)      ((w) >= tx->w_set.entries && (w) < tx->w_set.entries + tx->w_set.nb_entries)
+
+#define ENTRY_FROM_READ_POINTER(tx, r)  ((entry_t)((r) - tx->r_set.entries))
+#define ENTRY_FROM_WRITE_POINTER(tx, w) ((entry_t)((w) - tx->w_set.entries))
+
+#define ALIGN_ADDR(a)                   ((volatile stm_word_t *)((uintptr_t)(a) & ~(sizeof(stm_word_t) - 1)))
+
 /* ################################################################### *
  * CLOCK
  * ################################################################### */
@@ -305,14 +320,7 @@ typedef struct {
 # define MAX_SPECIFIC                   7
 #endif /* MAX_SPECIFIC */
 
-/* Sum type of read/write set entry */
-typedef uintptr_t entry_t;
-#define ENTRY_IS_READ(c)                (c & 1)
-#define ENTRY_IS_WRITE(c)               (!ENTRY_IS_READ(c))
-#define ENTRY_GET_READ(c)               ((struct r_entry *)(c & ~1))
-#define ENTRY_GET_WRITE(c)              ((struct w_entry *)c)
-#define ENTRY_FROM_READ(r)              ((entry_t)(r) | 1)
-#define ENTRY_FROM_WRITE(w)             ((entry_t)w)
+struct stm_tx;
 
 typedef struct r_entry {                /* Read set entry */
   const stm_lock_t *lock;               /* Pointer to lock (for fast access) */
@@ -359,7 +367,16 @@ typedef struct w_set {                  /* Write set */
 #endif /* USE_BLOOM_FILTER */
 } w_set_t;
 
-struct stm_tx;
+typedef struct tx_conflict {
+  stm_conflict_t entries;               /* Conflicting read/write set entries */
+#ifdef CONFLICT_TRACKING
+  struct stm_tx *other;                 /* Transaction that was conflicted with */
+  stm_word_t status;                    /* Status of this transaction at time of conflict */
+#endif /* CONFLICT_TRACKING */
+#ifdef CONTENDED_LOCK_TRACKING
+  const stm_lock_t *lock;               /* Pointer to contended lock */
+#endif /* CONTENDED_LOCK_TRACKING */
+} tx_conflict_t;
 
 typedef struct cb_entry1 {              /* Callback entry */
   const void (*f)(struct stm_tx *,
@@ -434,7 +451,7 @@ typedef struct {
   stm_lock_t locks[LOCK_ARRAY_SIZE] ALIGNED;
   volatile stm_word_t gclock[512 / sizeof(stm_word_t)] ALIGNED;
 #ifdef CONFLICT_TRACKING
-  const stm_tx_policy_t (*conflict_cb)(const stm_tx_t *, const stm_tx_t *, const stm_tx_conflict_t, const entry_t, const entry_t);
+  const stm_tx_policy_t (*conflict_cb)(const stm_tx_t *, const tx_conflict_t *);
 #endif /* CONFLICT_TRACKING */
   unsigned int nb_specific;             /* Number of specific slots used (<= MAX_SPECIFIC) */
   unsigned int nb_init_cb;
@@ -471,15 +488,20 @@ extern global_t _tinystm;
  * FUNCTIONS DECLARATIONS
  * ################################################################### */
 
+static stm_tx_policy_t
+stm_conflict_handle_all(struct stm_tx *tx, const tx_conflict_t *conflict);
+static stm_tx_policy_t
+stm_conflict_handle(struct stm_tx *tx, const tx_conflict_t *conflict);
+
 static NOINLINE void
 stm_rollback(stm_tx_t *tx, stm_tx_abort_t reason);
 
 #if CM == CM_TIMESTAMP
 stm_tx_policy_t
-cm_timestamp(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict, entry_t c1, entry_t c2);
+cm_timestamp(struct stm_tx *tx, const tx_conflict_t *conflict);
 #elif CM == CM_KARMA
 stm_tx_policy_t
-cm_karma(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict, entry_t c1, entry_t c2);
+cm_karma(struct stm_tx *tx, const tx_conflict_t *conflict);
 #endif /* CM */
 
 #ifdef TRANSACTION_OPERATIONS
@@ -770,8 +792,6 @@ stm_has_read(stm_tx_t *tx, const stm_lock_t *lock)
 static INLINE w_entry_t *
 stm_has_written(stm_tx_t *tx, volatile stm_word_t *addr)
 {
-  w_entry_t *w;
-  int i;
 # ifdef USE_BLOOM_FILTER
   stm_word_t mask;
 # endif /* USE_BLOOM_FILTER */
@@ -785,11 +805,9 @@ stm_has_written(stm_tx_t *tx, volatile stm_word_t *addr)
 # endif /* USE_BLOOM_FILTER */
 
   /* Look for write */
-  w = tx->w_set.entries;
-  for (i = tx->w_set.nb_entries; i > 0; i--, w++) {
-    if (w->addr == addr) {
+  for (w_entry_t *w = tx->w_set.entries; w < tx->w_set.entries + tx->w_set.nb_entries; ++w) {
+    if (w->addr == addr)
       return w;
-    }
   }
   return NULL;
 }
@@ -875,6 +893,111 @@ stm_add_to_rs(stm_tx_t *tx, const stm_lock_t *lock, stm_word_t version) {
   return r;
 }
 
+static INLINE stm_tx_policy_t stm_conflict_get_decision(stm_tx_t *tx, const tx_conflict_t *conflict)
+{
+  PRINT_DEBUG("==> stm_conflict_get_decision(%p[%lu-%lu],%u,0x%lx,0x%lx)\n", tx, (unsigned long)tx->start, (unsigned long)tx->end, conflict.entries.type, conflict.entries->e1, conflict.entries.e2);
+
+#ifdef CONFLICT_TRACKING
+  if (unlikely(_tinystm.conflict_cb != NULL)) {
+    return _tinystm.conflict_cb(tx, conflict);
+  }
+#endif /* CONFLICT_TRACKING */
+
+#if CM == CM_SUICIDE
+  return STM_KILL_SELF;
+#elif CM == CM_AGGRESSIVE
+  return STM_KILL_OTHER;
+#elif CM == CM_DELAY
+  return STM_KILL_SELF | STM_DELAY;
+#elif CM == CM_TIMESTAMP
+  return cm_timestamp(tx, conflict);
+#elif CM == CM_BACKOFF
+  return cm_backoff(tx, conflict);
+#elif CM == CM_KARMA
+  return cm_karma(tx, conflict);
+#endif /* CM */
+}
+
+static stm_tx_policy_t
+stm_conflict_handle_all(stm_tx_t *tx, const tx_conflict_t *conflict)
+{
+  PRINT_DEBUG("==> stm_conflict_handle_all(%p[%lu-%lu],%u,0x%lx,0x%lx)\n", tx, (unsigned long)tx->start, (unsigned long)tx->end, conflict.entries.type, conflict.entries->e1, conflict.entries.e2);
+
+  stm_tx_policy_t decision = stm_conflict_handle(tx, conflict);
+  if (decision == STM_KILL_SELF) {
+    stm_rollback(tx, STM_ABORT_IMPLICIT | (conflict->entries.type << 8));
+  }
+  return decision;
+}
+
+static stm_tx_policy_t
+stm_decision_kill_other(stm_tx_t *tx, const tx_conflict_t *conflict, stm_tx_policy_t decision)
+{
+  PRINT_DEBUG("==> stm_decision_kill_other(%p[%lu-%lu],%p,%x)\n", tx, (unsigned long)tx->start, (unsigned long)tx->end, conflict, decision);
+
+#ifdef TRANSACTION_OPERATIONS
+  if (decision == STM_KILL_OTHER) {
+    assert(conflict->status);
+    /* FIXME: Need to implement for CTL and WT */
+    if (!stm_kill(tx, conflict->other, conflict->status))
+      decision = STM_RETRY;
+  }
+#endif /* TRANSACTION_OPERATIONS */
+  return decision;
+}
+
+static stm_tx_policy_t
+stm_decision_implement(stm_tx_t *tx, const tx_conflict_t *conflict, stm_tx_policy_t decision)
+{
+  PRINT_DEBUG("==> stm_decision_implement(%p[%lu-%lu],%p,%x)\n", tx, (unsigned long)tx->start, (unsigned long)tx->end, conflict, decision);
+
+#ifdef TRANSACTION_OPERATIONS
+  if (GET_STATUS(tx->status) == TX_KILLING) {
+    stm_rollback(tx, STM_ABORT_KILLED);
+    return STM_KILL_SELF;
+  }
+#endif /* TRANSACTION_OPERATIONS */
+
+  if ((decision & STM_DELAY) != 0) {
+    decision = decision & ~STM_DELAY;
+
+    /* Track the contended lock */
+#ifdef CONTENDED_LOCK_TRACKING
+    assert(conflict->lock);
+    ATOMIC_STORE_REL(&tx->c_lock, conflict->lock);
+#endif /* CONTENDED_LOCK_TRACKING */
+
+    if ((decision & STM_RETRY) != 0) {
+#ifdef CONTENDED_LOCK_TRACKING
+      while (LOCK_GET_OWNED(LOCK_READ_ACQ(conflict->lock))) {
+        /* Check other transaction is not waiting to avoid cyclic livelock. */
+        if (ATOMIC_LOAD_ACQ(&conflict->other->c_lock)) {
+          decision = STM_KILL_SELF;
+          break;
+        }
+      }
+      /* Only track the lock while waiting when retrying */
+      ATOMIC_STORE_REL(&tx->c_lock, NULL);
+#endif /* CONTENDED_LOCK_TRACKING */
+    }
+  }
+
+  return stm_decision_kill_other(tx, conflict, decision);
+}
+
+static stm_tx_policy_t
+stm_conflict_handle(stm_tx_t *tx, const tx_conflict_t *conflict)
+{
+  PRINT_DEBUG("==> stm_conflict_handle(%p[%lu-%lu],%u,0x%lx,0x%lx)\n", tx, (unsigned long)tx->start, (unsigned long)tx->end, conflict.entries.type, conflict.entries->e1, conflict.entries.e2);
+
+  stm_tx_policy_t decision = stm_conflict_get_decision(tx, conflict);
+
+  PRINT_DEBUG("==> stm_conflict_handle: %x\n", decision);
+
+  /* Implement the conflict resolution policy */
+  return stm_decision_implement(tx, conflict, decision);
+}
+
 #if DESIGN == WRITE_BACK_ETL || DESIGN == WRITE_BACK_ETL_VR
 # include "stm_wbetl.h"
 #elif DESIGN == WRITE_BACK_CTL
@@ -899,8 +1022,22 @@ stm_kill(stm_tx_t *tx, stm_tx_t *other, stm_word_t status)
   PRINT_DEBUG("==> stm_kill(%p[%lu-%lu],%p,s=%d)\n", tx, (unsigned long)tx->start, (unsigned long)tx->end, other, status);
 
 # ifdef CONFLICT_TRACKING
-  if (_tinystm.conflict_cb != NULL)
-    _tinystm.conflict_cb(tx, other, STM_KILLED, 0, 0);
+  if (_tinystm.conflict_cb != NULL) {
+    tx_conflict_t conflict = {
+      .entries.type = STM_KILLED,
+      .entries.e1 = ENTRY_INVALID,
+      .entries.e2 = ENTRY_INVALID,
+#  ifdef CONFLICT_TRACKING
+      .other = other,
+      .status = other->status,
+#  endif /* CONFLICT_TRACKING */
+#  ifdef CONTENDED_LOCK_TRACKING
+      .lock = NULL,
+#  endif /* CONTENDED_LOCK_TRACKING */
+    };
+
+    _tinystm.conflict_cb(tx, &conflict);
+  }
 # endif /* CONFLICT_TRACKING */
 
 # ifdef IRREVOCABLE_ENABLED
@@ -1129,14 +1266,14 @@ stm_rollback(stm_tx_t *tx, stm_tx_abort_t reason)
 #ifdef CONTENDED_LOCK_TRACKING
   const stm_lock_t *l = (stm_lock_t *)ATOMIC_LOAD_ACQ(&tx->c_lock);
   /* Wait until contented lock is free */
-  if (tx->c_lock != NULL) {
+  if (l != NULL) {
     /* Busy waiting (yielding is expensive) */
     while (LOCK_GET_OWNED(LOCK_READ(l))) {
 # ifdef WAIT_YIELD
       sched_yield();
 # endif /* WAIT_YIELD */
     }
-    tx->c_lock = NULL;
+    ATOMIC_STORE_REL(&tx->c_lock, NULL);
   }
 #endif /* CONTENDED_LOCK_TRACKING */
 
@@ -1561,12 +1698,14 @@ int_stm_load(stm_tx_t *tx, volatile stm_word_t *addr)
 static INLINE void
 int_stm_store(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value)
 {
+  assert(addr == ALIGN_ADDR(addr));
   stm_write(tx, addr, value, ~(stm_word_t)0);
 }
 
 static INLINE void
 int_stm_store2(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_word_t mask)
 {
+  assert(addr == ALIGN_ADDR(addr));
   stm_write(tx, addr, value, mask);
 }
 
