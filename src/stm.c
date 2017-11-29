@@ -45,9 +45,10 @@
 /* Indexes are defined in stm_internal.h  */
 static const char *design_names[] = {
   /* 0 */ "WRITE-BACK (ETL)",
-  /* 1 */ "WRITE-BACK (CTL)",
-  /* 2 */ "WRITE-THROUGH",
-  /* 3 */ "WRITE-MODULAR"
+  /* 1 */ "WRITE_BACK (ETL, VR)",
+  /* 2 */ "WRITE-BACK (CTL)",
+  /* 3 */ "WRITE-THROUGH",
+  /* 4 */ "WRITE-MODULAR"
 };
 
 static const char *cm_names[] = {
@@ -234,9 +235,9 @@ signal_catcher(int sig)
 _CALLCONV void
 stm_init(void)
 {
-#if CM == CM_MODULAR
+#if DESIGN == WRITE_BACK_ETL_VR
   char *s;
-#endif /* CM == CM_MODULAR */
+#endif /* DESIGN == WRITE_BACK_ETL */
 #ifdef SIGNAL_HANDLER
   struct sigaction act;
 #endif /* SIGNAL_HANDLER */
@@ -257,14 +258,14 @@ stm_init(void)
   gc_init(stm_get_clock);
 #endif /* MEMORY_MANAGEMENT != MM_NONE */
 
-#if CM == CM_MODULAR
+#if DESIGN == WRITE_BACK_ETL_VR
   s = getenv(VR_THRESHOLD);
   if (s != NULL)
     _tinystm.vr_threshold = (int)strtol(s, NULL, 10);
   else
     _tinystm.vr_threshold = VR_THRESHOLD_DEFAULT;
   PRINT_DEBUG("\tVR_THRESHOLD=%d\n", _tinystm.vr_threshold);
-#endif /* CM == CM_MODULAR */
+#endif /* DESIGN == WRITE_BACK_ETL_VR */
 
   /* Set locks and clock but should be already to 0 */
   memset((void *)_tinystm.locks, 0, LOCK_ARRAY_SIZE * sizeof(stm_word_t));
@@ -576,12 +577,12 @@ stm_get_parameter(const char *name, void *val)
     return 1;
   }
 #endif /* CM == CM_BACKOFF */
-#if CM == CM_MODULAR
+#if DESIGN == WRITE_BACK_ETL_VR
   if (strcmp("vr_threshold", name) == 0) {
     *(int *)val = _tinystm.vr_threshold;
     return 1;
   }
-#endif /* CM == CM_MODULAR */
+#endif /* DESIGN == WRITE_BACK_ETL_VR */
 #ifdef COMPILE_FLAGS
   if (strcmp("compile_flags", name) == 0) {
     *(const char **)val = XSTR(COMPILE_FLAGS);
@@ -612,10 +613,12 @@ stm_set_parameter(const char *name, void *val)
   if (strcmp("cm_function", name) == 0) {
     _tinystm.conflict_cb = (const stm_tx_policy_t (*)(const stm_tx_t *, const stm_tx_t *, const stm_tx_conflict_t, const entry_t, const entry_t))val;
   }
+# if DESIGN == WRITE_BACK_ETL_VR
   if (strcmp("vr_threshold", name) == 0) {
     _tinystm.vr_threshold = *(int *)val;
     return 1;
   }
+# endif /* DESIGN == WRITE_BACK_ETL_VR */
 #endif /* CM == CM_MODULAR */
   return 0;
 }
@@ -941,7 +944,7 @@ int_stm_set_irrevocable(stm_tx_t *tx, int serial)
     /* Success: remember we have the lock */
     tx->irrevocable++;
     /* Try validating transaction */
-#if DESIGN == WRITE_BACK_ETL
+#if DESIGN == WRITE_BACK_ETL || DESIGN == WRITE_BACK_ETL_VR
     if (!stm_wbetl_validate(tx)) {
       stm_rollback(tx, STM_ABORT_VAL_COMMIT);
       return 0;
@@ -959,7 +962,7 @@ int_stm_set_irrevocable(stm_tx_t *tx, int serial)
 #elif DESIGN == MODULAR
     if ((tx->attr.id == WRITE_BACK_CTL && !stm_wbctl_validate(tx))
        || (tx->attr.id == WRITE_THROUGH && !stm_wt_validate(tx))
-       || (tx->attr.id != WRITE_BACK_CTL && tx->attr.id != WRITE_THROUGH && !stm_wbetl_validate(tx))) {
+       || ((tx->attr.id == WRITE_BACK_ETL || tx->attr.id == WRITE_BACK_ETL_VR) && !stm_wbetl_validate(tx))) {
       stm_rollback(tx, STM_ABORT_VAL_COMMIT);
       return 0;
     }

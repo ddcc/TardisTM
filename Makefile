@@ -30,6 +30,9 @@ include Makefile.common
 #   when encountering write operations and buffers updates (they are
 #   committed to main memory at commit time).
 #
+# WRITE_BACK_ETL_VR: like WRITE_BACK_ETL but with visible reads after a
+#   threshold is reached. This requires TRANSACTION_OPERATIONS.
+#
 # WRITE_BACK_CTL: write-back with commit-time locking delays acquisition
 #   of lock until commit time and buffers updates.
 #
@@ -40,6 +43,7 @@ include Makefile.common
 ########################################################################
 
 DEFINES += -DDESIGN=WRITE_BACK_ETL
+# DEFINES += -DDESIGN=WRITE_BACK_ETL_VR
 # DEFINES += -DDESIGN=WRITE_BACK_CTL
 # DEFINES += -DDESIGN=WRITE_THROUGH
 # DEFINES += -DDESIGN=MODULAR
@@ -248,7 +252,7 @@ DEFINES += -UUNIT_TX
 # VR_THRESHOLD_DEFAULT (default=3): number of aborts due to failed
 #   validation before switching to visible reads.  A value of 0
 #   indicates no limit.  This parameter is only used with the
-#   CM_MODULAR contention manager.  It can also be set using an
+#   WRITE_BACK_ETL design.  It can also be set using an
 #   environment variable of the same name.
 ########################################################################
 
@@ -266,10 +270,11 @@ DEFINES += -UUNIT_TX
 # Replace textual values by constants for unifdef...
 D := $(DEFINES)
 D := $(D:WRITE_BACK_ETL=0)
-D := $(D:WRITE_BACK_CTL=1)
-D := $(D:WRITE_THROUGH=2)
-D := $(D:MODULAR=3)
-D += -DWRITE_BACK_ETL=0 -DWRITE_BACK_CTL=1 -DWRITE_THROUGH=2 -DMODULAR=3
+D := $(D:WRITE_BACK_ETL_VR=1)
+D := $(D:WRITE_BACK_CTL=2)
+D := $(D:WRITE_THROUGH=3)
+D := $(D:MODULAR=4)
+D += -DWRITE_BACK_ETL=0 -DWRITE_BACK_ETL_VR=1 -DWRITE_BACK_CTL=2 -DWRITE_THROUGH=3 -DMODULAR=4
 D := $(D:CM_SUICIDE=0)
 D := $(D:CM_DELAY=1)
 D := $(D:CM_BACKOFF=2)

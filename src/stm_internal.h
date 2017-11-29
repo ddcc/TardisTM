@@ -40,9 +40,10 @@
 
 /* Designs */
 #define WRITE_BACK_ETL                  0
-#define WRITE_BACK_CTL                  1
-#define WRITE_THROUGH                   2
-#define MODULAR                         3
+#define WRITE_BACK_ETL_VR               1
+#define WRITE_BACK_CTL                  2
+#define WRITE_THROUGH                   3
+#define MODULAR                         4
 
 #ifndef DESIGN
 # define DESIGN                         WRITE_BACK_ETL
@@ -66,9 +67,9 @@
 # define MEMORY_MANAGEMENT              MM_NONE
 #endif /* ! MEMORY_MANAGEMENT */
 
-#if DESIGN != WRITE_BACK_ETL && CM == CM_MODULAR
+#if (DESIGN != WRITE_BACK_ETL && DESIGN != WRITE_BACK_ETL_VR) && CM == CM_MODULAR
 # error "MODULAR contention manager can only be used with WB-ETL design"
-#endif /* DESIGN != WRITE_BACK_ETL && CM == CM_MODULAR */
+#endif /* (DESIGN != WRITE_BACK_ETL || DESIGN != WRITE_BACK_ETL_VR) && CM == CM_MODULAR */
 
 #if defined(CONFLICT_TRACKING) && MEMORY_MANAGEMENT == MM_NONE
 # error "CONFLICT_TRACKING requires MEMORY_MANAGEMENT != MM_NONE"
@@ -113,12 +114,12 @@
 # endif /* MAX_BACKOFF */
 #endif /* CM == CM_BACKOFF */
 
-#if CM == CM_MODULAR
+#if DESIGN == WRITE_BACK_ETL_VR
 # define VR_THRESHOLD                   "VR_THRESHOLD"
 # ifndef VR_THRESHOLD_DEFAULT
 #  define VR_THRESHOLD_DEFAULT          3                   /* -1 means no visible reads. 0 means always use visible reads. */
 # endif /* VR_THRESHOLD_DEFAULT */
-#endif /* CM == CM_MODULAR */
+#endif /* DESIGN == WRITE_BACK_ETL_VR */
 
 #define NO_SIGNAL_HANDLER               "NO_SIGNAL_HANDLER"
 
@@ -384,9 +385,9 @@ typedef struct stm_tx {                 /* Transaction descriptor */
   unsigned long backoff;                /* Maximum backoff duration */
   unsigned long seed;                   /* RNG seed */
 #endif /* CM == CM_BACKOFF */
-#if CM == CM_MODULAR
+#if DESIGN == WRITE_BACK_ETL_VR
   int visible_reads;                    /* Should we use visible reads? */
-#endif /* CM == CM_MODULAR */
+#endif /* DESIGN == WRITE_BACK_ETL_VR */
 #if CM == CM_MODULAR || defined(TM_STATISTICS)
   unsigned int stat_retries;            /* Number of consecutive aborts (retries) */
 #endif /* CM == CM_MODULAR || defined(TM_STATISTICS) */
@@ -437,9 +438,9 @@ typedef struct {
   stm_tx_t *threads;                    /* Head of linked list of threads */
   pthread_mutex_t quiesce_mutex;        /* Mutex to support quiescence */
   pthread_cond_t quiesce_cond;          /* Condition variable to support quiescence */
-#if CM == CM_MODULAR
+#if DESIGN == WRITE_BACK_ETL_VR
   int vr_threshold;                     /* Number of retries before to switch to visible reads. */
-#endif /* CM == CM_MODULAR */
+#endif /* DESIGN == WRITE_BACK_ETL_VR */
   /* At least twice a cache line (256 bytes to be on the safe side) */
   char padding[CACHELINE_SIZE];
 } ALIGNED global_t;
@@ -720,9 +721,9 @@ stm_has_read(stm_tx_t *tx, volatile stm_word_t *lock)
 
   PRINT_DEBUG("==> stm_has_read(%p[%lu-%lu],%p)\n", tx, (unsigned long)tx->start, (unsigned long)tx->end, lock);
 
-#if CM == CM_MODULAR
+#if DESIGN == WRITE_BACK_ETL_VR
   /* TODO case of visible read is not handled */
-#endif /* CM == CM_MODULAR */
+#endif /* DESIGN == WRITE_BACK_ETL_VR */
 
   /* Look for read */
   r = tx->r_set.entries;
@@ -846,7 +847,7 @@ stm_add_to_rs(stm_tx_t *tx, volatile stm_word_t *lock, stm_word_t version) {
   return r;
 }
 
-#if DESIGN == WRITE_BACK_ETL
+#if DESIGN == WRITE_BACK_ETL || DESIGN == WRITE_BACK_ETL_VR
 # include "stm_wbetl.h"
 #elif DESIGN == WRITE_BACK_CTL
 # include "stm_wbctl.h"
@@ -944,13 +945,13 @@ stm_drop(stm_tx_t *tx)
 static INLINE void
 int_stm_prepare(stm_tx_t *tx)
 {
-#if CM == CM_MODULAR
+#if DESIGN == WRITE_BACK_ETL_VR
   if (tx->attr.visible_reads || (tx->visible_reads >= _tinystm.vr_threshold && _tinystm.vr_threshold >= 0)) {
     /* Use visible read */
     tx->attr.visible_reads = 1;
     tx->attr.read_only = 0;
   }
-#endif /* CM == CM_MODULAR */
+#endif /* DESIGN == WRITE_BACK_ETL */
 
   /* Read/write set */
   /* has_writes / nb_acquired are the same field. */
@@ -1029,7 +1030,7 @@ stm_rollback(stm_tx_t *tx, stm_tx_abort_t reason)
   }
 #endif /* TRANSACTION_OPERATIONS */
 
-#if DESIGN == WRITE_BACK_ETL
+#if DESIGN == WRITE_BACK_ETL || DESIGN == WRITE_BACK_ETL_VR
   stm_wbetl_rollback(tx);
 #elif DESIGN == WRITE_BACK_CTL
   stm_wbctl_rollback(tx);
@@ -1163,7 +1164,7 @@ stm_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_word_t 
   ++tx->stat_writes;
 #endif /* TM_STATISTICS2 */
 
-#if DESIGN == WRITE_BACK_ETL
+#if DESIGN == WRITE_BACK_ETL || DESIGN == WRITE_BACK_ETL_VR
   w = stm_wbetl_write(tx, addr, value, mask);
 #elif DESIGN == WRITE_BACK_CTL
   w = stm_wbctl_write(tx, addr, value, mask);
@@ -1185,7 +1186,7 @@ static INLINE stm_word_t
 int_stm_RaR(stm_tx_t *tx, volatile stm_word_t *addr)
 {
   stm_word_t value;
-#if DESIGN == WRITE_BACK_ETL
+#if DESIGN == WRITE_BACK_ETL || DESIGN == WRITE_BACK_ETL_VR
   value = stm_wbetl_RaR(tx, addr);
 #elif DESIGN == WRITE_BACK_CTL
   value = stm_wbctl_RaR(tx, addr);
@@ -1199,7 +1200,7 @@ static INLINE stm_word_t
 int_stm_RaW(stm_tx_t *tx, volatile stm_word_t *addr)
 {
   stm_word_t value;
-#if DESIGN == WRITE_BACK_ETL
+#if DESIGN == WRITE_BACK_ETL || DESIGN == WRITE_BACK_ETL_VR
   value = stm_wbetl_RaW(tx, addr);
 #elif DESIGN == WRITE_BACK_CTL
   value = stm_wbctl_RaW(tx, addr);
@@ -1213,7 +1214,7 @@ static INLINE stm_word_t
 int_stm_RfW(stm_tx_t *tx, volatile stm_word_t *addr)
 {
   stm_word_t value;
-#if DESIGN == WRITE_BACK_ETL
+#if DESIGN == WRITE_BACK_ETL || DESIGN == WRITE_BACK_ETL_VR
   value = stm_wbetl_RfW(tx, addr);
 #elif DESIGN == WRITE_BACK_CTL
   value = stm_wbctl_RfW(tx, addr);
@@ -1226,7 +1227,7 @@ int_stm_RfW(stm_tx_t *tx, volatile stm_word_t *addr)
 static INLINE void
 int_stm_WaR(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_word_t mask)
 {
-#if DESIGN == WRITE_BACK_ETL
+#if DESIGN == WRITE_BACK_ETL || DESIGN == WRITE_BACK_ETL_VR
   stm_wbetl_WaR(tx, addr, value, mask);
 #elif DESIGN == WRITE_BACK_CTL
   stm_wbctl_WaR(tx, addr, value, mask);
@@ -1238,7 +1239,7 @@ int_stm_WaR(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_word_
 static INLINE void
 int_stm_WaW(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_word_t mask)
 {
-#if DESIGN == WRITE_BACK_ETL
+#if DESIGN == WRITE_BACK_ETL || DESIGN == WRITE_BACK_ETL_VR
   stm_wbetl_WaW(tx, addr, value, mask);
 #elif DESIGN == WRITE_BACK_CTL
   stm_wbctl_WaW(tx, addr, value, mask);
@@ -1299,8 +1300,10 @@ int_stm_init_thread(void)
   tx->backoff = MIN_BACKOFF;
   tx->seed = 123456789UL;
 #endif /* CM == CM_BACKOFF */
-#if CM == CM_MODULAR
+#if DESIGN == WRITE_BACK_ETL_VR
   tx->visible_reads = 0;
+#endif /* DESIGN == WRITE_BACK_ETL_VR */
+#if CM == CM_MODULAR
   tx->timestamp = 0;
 #endif /* CM == CM_MODULAR */
 #if CM == CM_MODULAR || defined(TM_STATISTICS)
@@ -1455,7 +1458,7 @@ int_stm_commit(stm_tx_t *tx)
     goto end;
 
   /* Update transaction */
-#if DESIGN == WRITE_BACK_ETL
+#if DESIGN == WRITE_BACK_ETL || DESIGN == WRITE_BACK_ETL_VR
   stm_wbetl_commit(tx);
 #elif DESIGN == WRITE_BACK_CTL
   stm_wbctl_commit(tx);
@@ -1483,9 +1486,9 @@ int_stm_commit(stm_tx_t *tx)
   tx->backoff = MIN_BACKOFF;
 #endif /* CM == CM_BACKOFF */
 
-#if CM == CM_MODULAR
+#if DESIGN == WRITE_BACK_ETL_VR
   tx->visible_reads = 0;
-#endif /* CM == CM_MODULAR */
+#endif /* DESIGN == WRITE_BACK_ETL_VR */
 
 #ifdef IRREVOCABLE_ENABLED
   if (unlikely(tx->irrevocable)) {
@@ -1517,7 +1520,7 @@ int_stm_load(stm_tx_t *tx, volatile stm_word_t *addr)
 #endif /* TM_STATISTICS2 */
 
   assert(addr == ALIGN_ADDR(addr));
-#if DESIGN == WRITE_BACK_ETL
+#if DESIGN == WRITE_BACK_ETL || DESIGN == WRITE_BACK_ETL_VR
   return stm_wbetl_read(tx, addr);
 #elif DESIGN == WRITE_BACK_CTL
   return stm_wbctl_read(tx, addr);

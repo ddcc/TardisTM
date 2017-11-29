@@ -29,6 +29,10 @@
 #include "stm_internal.h"
 #include "atomic.h"
 
+#if DESIGN == WRITE_BACK_ETL_VR && ! defined(TRANSACTION_OPERATIONS)
+# error "WRITE_BACK_ETL_VR requires TRANSACTION_OPERATIONS"
+#endif /* DESIGN == WRITE_BACK_ETL_VR && ! defined(TRANSACTION_OPERATIONS) */
+
 static INLINE int
 stm_wbetl_validate(stm_tx_t *tx)
 {
@@ -338,10 +342,10 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
       /* No: try to extend first (except for read-only transactions: no read set) */
       if (tx->attr.read_only || !stm_wbetl_extend(tx)) {
         /* Not much we can do: abort */
-#if CM == CM_MODULAR
+#if DESIGN == WRITE_BACK_ETL_VR
         /* Abort caused by invisible reads */
         tx->visible_reads++;
-#endif /* CM == CM_MODULAR */
+#endif /* DESIGN == WRITE_BACK_ETL_VR */
         stm_rollback(tx, STM_ABORT_VAL_READ);
         return 0;
       }
@@ -373,7 +377,7 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
   return value;
 }
 
-#if CM == CM_MODULAR
+#if DESIGN == WRITE_BACK_ETL_VR
 /*
  * Load a word-sized value (visible read).
  */
@@ -478,8 +482,10 @@ stm_wbetl_read_visible(stm_tx_t *tx, volatile stm_word_t *addr)
       goto acquire;
     }
     /* Kill self */
+# if CM == CM_DELAY || CM == CM_MODULAR
     if ((decision & STM_DELAY) != 0)
       tx->c_lock = lock;
+# endif /* CM == CM_DELAY || CM == CM_MODULAR */
     /* Abort */
     stm_rollback(tx, (LOCK_GET_WRITE(l) ? STM_ABORT_WR_CONFLICT : STM_ABORT_RR_CONFLICT));
     return 0;
@@ -504,17 +510,17 @@ stm_wbetl_read_visible(stm_tx_t *tx, volatile stm_word_t *addr)
   tx->w_set.nb_entries++;
   return value;
 }
-#endif /* CM == CM_MODULAR */
+#endif /* DESIGN == WRITE_BACK_ETL_VR */
 
 static INLINE stm_word_t
 stm_wbetl_read(stm_tx_t *tx, volatile stm_word_t *addr)
 {
-#if CM == CM_MODULAR
+#if DESIGN == WRITE_BACK_ETL_VR
   if (unlikely((tx->attr.visible_reads))) {
     /* Use visible read */
     return stm_wbetl_read_visible(tx, addr);
   }
-#endif /* CM == CM_MODULAR */
+#endif /* DESIGN == WRITE_BACK_ETL_VR */
   return stm_wbetl_read_invisible(tx, addr);
 }
 
@@ -680,10 +686,10 @@ stm_wbetl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_w
     if (unlikely((r = stm_has_read(tx, lock)) != NULL)) {
       /* Read version must be older (otherwise, tx->end >= version) */
       /* Not much we can do: abort */
-#if CM == CM_MODULAR
+#if DESIGN == WRITE_BACK_ETL_VR
       /* Abort caused by invisible reads */
       tx->visible_reads++;
-#endif /* CM == CM_MODULAR */
+#endif /* DESIGN == WRITE_BACK_ETL_VR */
 #ifdef CONFLICT_TRACKING
       if (_tinystm.conflict_cb != NULL) {
           /* Call conflict callback */
@@ -868,10 +874,10 @@ stm_wbetl_commit(stm_tx_t *tx)
   /* Try to validate (only if a concurrent transaction has committed since tx->end) */
   if (unlikely(tx->end != t - 1 && !stm_wbetl_validate(tx))) {
     /* Cannot commit */
-#if CM == CM_MODULAR
+#if DESIGN == WRITE_BACK_ETL_VR
     /* Abort caused by invisible reads */
     tx->visible_reads++;
-#endif /* CM == CM_MODULAR */
+#endif /* DESIGN == WRITE_BACK_ETL_VR */
     stm_rollback(tx, STM_ABORT_VAL_COMMIT);
     return 0;
   }
