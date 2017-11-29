@@ -305,13 +305,11 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
       goto restart_no_load;
     }
     /* Kill self */
-# if CM == CM_DELAY || CM == CM_MODULAR
+#endif /* TRANSACTION_OPERATIONS */
+#ifdef CONTENDED_LOCK_TRACKING
     if ((decision & STM_DELAY) != 0)
       tx->c_lock = lock;
-# endif /* CM == CM_DELAY || CM == CM_MODULAR */
-#elif CM == CM_DELAY
-    tx->c_lock = lock;
-#endif /* CM == CM_DELAY */
+#endif /* CONTENDED_LOCK_TRACKING */
     /* Abort */
     stm_rollback(tx, STM_ABORT_RW_CONFLICT);
     return 0;
@@ -482,10 +480,10 @@ stm_wbetl_read_visible(stm_tx_t *tx, volatile stm_word_t *addr)
       goto acquire;
     }
     /* Kill self */
-# if CM == CM_DELAY || CM == CM_MODULAR
+#ifdef CONTENDED_LOCK_TRACKING
     if ((decision & STM_DELAY) != 0)
       tx->c_lock = lock;
-# endif /* CM == CM_DELAY || CM == CM_MODULAR */
+#endif /* CONTENDED_LOCK_TRACKING */
     /* Abort */
     stm_rollback(tx, (LOCK_GET_WRITE(l) ? STM_ABORT_WR_CONFLICT : STM_ABORT_RR_CONFLICT));
     return 0;
@@ -654,14 +652,12 @@ stm_wbetl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_w
       version = w->version;
       goto acquire;
     }
+#endif /* TRANSACTION_OPERATIONS */
     /* Kill self */
-# if CM == CM_DELAY || CM == CM_MODULAR
+#ifdef CONTENDED_LOCK_TRACKING
     if ((decision & STM_DELAY) != 0)
       tx->c_lock = lock;
-# endif /* CM == CM_DELAY || CM == CM_MODULAR */
-#elif CM == CM_DELAY
-    tx->c_lock = lock;
-#endif /* CM == CM_DELAY */
+#endif /* CONTENDED_LOCK_TRACKING */
     /* Abort */
     stm_rollback(tx, STM_ABORT_WW_CONFLICT);
     return NULL;

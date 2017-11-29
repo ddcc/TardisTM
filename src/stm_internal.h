@@ -378,9 +378,9 @@ typedef struct stm_tx {                 /* Transaction descriptor */
 #ifdef CONFLICT_TRACKING
   pthread_t thread_id;                  /* Thread identifier (immutable) */
 #endif /* CONFLICT_TRACKING */
-#if CM == CM_DELAY || CM == CM_MODULAR
+#ifdef CONTENDED_LOCK_TRACKING
   volatile stm_word_t *c_lock;          /* Pointer to contented lock (cause of abort) */
-#endif /* CM == CM_DELAY || CM == CM_MODULAR */
+#endif /* CONTENDED_LOCK_TRACKING */
 #if CM == CM_BACKOFF
   unsigned long backoff;                /* Maximum backoff duration */
   unsigned long seed;                   /* RNG seed */
@@ -1100,7 +1100,7 @@ stm_rollback(stm_tx_t *tx, stm_tx_abort_t reason)
     tx->backoff <<= 1;
 #endif /* CM == CM_BACKOFF */
 
-#if CM == CM_DELAY || CM == CM_MODULAR
+#ifdef CONTENDED_LOCK_TRACKING
   /* Wait until contented lock is free */
   if (tx->c_lock != NULL) {
     /* Busy waiting (yielding is expensive) */
@@ -1111,7 +1111,7 @@ stm_rollback(stm_tx_t *tx, stm_tx_abort_t reason)
     }
     tx->c_lock = NULL;
   }
-#endif /* CM == CM_DELAY || CM == CM_MODULAR */
+#endif /* CONTENDED_LOCK_TRACKING */
 
   /* Don't prepare a new transaction if no retry. */
   if (tx->attr.no_retry || (reason & STM_ABORT_NO_RETRY) == STM_ABORT_NO_RETRY) {
@@ -1291,10 +1291,10 @@ int_stm_init_thread(void)
   /* Thread identifier */
   tx->thread_id = pthread_self();
 #endif /* CONFLICT_TRACKING */
-#if CM == CM_DELAY || CM == CM_MODULAR
+#ifdef CONTENDED_LOCK_TRACKING
   /* Contented lock */
   tx->c_lock = NULL;
-#endif /* CM == CM_DELAY || CM == CM_MODULAR */
+#endif /* CONTENDED_LOCK_TRACKING */
 #if CM == CM_BACKOFF
   /* Backoff */
   tx->backoff = MIN_BACKOFF;

@@ -60,7 +60,8 @@ DEFINES += -DDESIGN=WRITE_BACK_ETL
 #   again to acquire the same lock and might fail once more if it has
 #   not been released.  In addition, this increases the chances that the
 #   transaction can succeed with no interruption upon retry, which
-#   improves execution time on the processor.
+#   improves execution time on the processor.  This features requires
+#   CONTENDED_LOCK_TRACKING.
 #
 # CM_BACKOFF: like CM_SUICIDE but wait for a random delay before
 #   restarting the transaction.  The delay duration is chosen uniformly
@@ -116,7 +117,6 @@ DEFINES += -UNO_DUPLICATES_IN_RW_SETS
 
 ########################################################################
 # Yield the processor when waiting for a contended lock to be released.
-# This only applies to the DELAY and CM_MODULAR contention managers.
 ########################################################################
 
 # DEFINES += -DWAIT_YIELD
@@ -163,6 +163,13 @@ DEFINES += -UCONFLICT_TRACKING
 
 # DEFINES += -DTRANSACTION_OPERATIONS
 DEFINES += -UTRANSACTION_OPERATIONS
+
+########################################################################
+# Keep track of contended locks between transactions.
+########################################################################
+
+# DEFINES += -DCONTENDED_LOCK_TRACKING
+DEFINES += -UCONTENDED_LOCK_TRACKING
 
 ########################################################################
 # Allow transactions to read the previous version of locked memory
