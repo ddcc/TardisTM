@@ -51,9 +51,11 @@
 
 /* Contention managers */
 #define CM_SUICIDE                      0
-#define CM_DELAY                        1
-#define CM_BACKOFF                      2
-#define CM_MODULAR                      3
+#define CM_AGGRESSIVE                   1
+#define CM_DELAY                        2
+#define CM_TIMESTAMP                    3
+#define CM_BACKOFF                      4
+#define CM_KARMA                        5
 
 #ifndef CM
 # define CM                             CM_SUICIDE
@@ -67,21 +69,29 @@
 # define MEMORY_MANAGEMENT              MM_NONE
 #endif /* ! MEMORY_MANAGEMENT */
 
-#if (DESIGN != WRITE_BACK_ETL && DESIGN != WRITE_BACK_ETL_VR) && CM == CM_MODULAR
-# error "MODULAR contention manager can only be used with WB-ETL design"
-#endif /* (DESIGN != WRITE_BACK_ETL || DESIGN != WRITE_BACK_ETL_VR) && CM == CM_MODULAR */
+#if CM == CM_AGGRESSIVE && ! defined(TRANSACTION_OPERATIONS)
+# error "AGGRESSIVE contention manager requires TRANSACTION_OPERATIONS"
+#endif
+
+#if CM == CM_DELAY && ! defined(CONTENDED_LOCK_TRACKING)
+# error "DELAY contention manager requires CONTENDED_LOCK_TRACKING"
+#endif
+
+#if CM == CM_TIMESTAMP && ! defined (CONFLICT_TRACKING)
+# error "TIMESTAMP contention manager requires CONFLICT_TRACKING"
+#endif
+
+#if CM == CM_KARMA && ! defined(CONFLICT_TRACKING)
+# error "KARMA contention manager requires CONFLICT_TRACKING"
+#endif
 
 #if defined(CONFLICT_TRACKING) && MEMORY_MANAGEMENT == MM_NONE
 # error "CONFLICT_TRACKING requires MEMORY_MANAGEMENT != MM_NONE"
 #endif /* defined(CONFLICT_TRACKING) && MEMORY_MANAGEMENT == MM_NONE */
 
-#if CM == CM_MODULAR && MEMORY_MANAGEMENT == MM_NONE
-# error "MODULAR contention manager requires MEMORY_MANAGEMENT != MM_NONE"
-#endif /* CM == CM_MODULAR && MEMORY_MANAGEMENT == MM_NONE */
-
-#if defined(READ_LOCKED_DATA) && CM != CM_MODULAR
-# error "READ_LOCKED_DATA can only be used with MODULAR contention manager"
-#endif /* defined(READ_LOCKED_DATA) && CM != CM_MODULAR */
+#if defined(READ_LOCKED_DATA) && DESIGN != WRITE_BACK_ETL
+# error "READ_LOCKED_DATA can only be used with WRITE_BACK_ETL design"
+#endif /* defined(READ_LOCKED_DATA) && DESIGN != WRITE_BACK_ETL */
 
 #if MEMORY_MANAGEMENT != MM_NONE && defined(SIGNAL_HANDLER)
 # error "SIGNAL_HANDLER can only be used with MEMORY_MANAGEMENT == MM_NONE"
@@ -311,9 +321,9 @@ typedef struct w_entry {                /* Write set entry */
       stm_word_t mask;                  /* Write mask */
       stm_word_t version;               /* Version overwritten */
       volatile stm_word_t *lock;        /* Pointer to lock (for fast access) */
-#if CM == CM_MODULAR || defined(CONFLICT_TRACKING)
+#ifdef CONFLICT_TRACKING
       struct stm_tx *tx;                /* Transaction owning the write set */
-#endif /* CM == CM_MODULAR || defined(CONFLICT_TRACKING) */
+#endif /* CONFLICT_TRACKING */
       union {
         struct w_entry *next;           /* WRITE_BACK_ETL || WRITE_THROUGH: Next address covered by same lock (if any) */
         stm_word_t no_drop;             /* WRITE_BACK_CTL: Should we drop lock upon abort? */
@@ -370,9 +380,9 @@ typedef struct stm_tx {                 /* Transaction descriptor */
   unsigned int irrevocable:4;           /* Is this execution irrevocable? */
 #endif /* IRREVOCABLE_ENABLED */
   unsigned int nesting;                 /* Nesting level */
-#if CM == CM_MODULAR
+#if CM == CM_TIMESTAMP
   stm_word_t timestamp;                 /* Timestamp (not changed upon restart) */
-#endif /* CM == CM_MODULAR */
+#endif /* CM == CM_TIMESTAMP */
   void *data[MAX_SPECIFIC];             /* Transaction-specific data (fixed-size array for better speed) */
   struct stm_tx *next;                  /* For keeping track of all transactional threads */
 #ifdef CONFLICT_TRACKING
@@ -388,10 +398,8 @@ typedef struct stm_tx {                 /* Transaction descriptor */
 #if DESIGN == WRITE_BACK_ETL_VR
   int visible_reads;                    /* Should we use visible reads? */
 #endif /* DESIGN == WRITE_BACK_ETL_VR */
-#if CM == CM_MODULAR || defined(TM_STATISTICS)
-  unsigned int stat_retries;            /* Number of consecutive aborts (retries) */
-#endif /* CM == CM_MODULAR || defined(TM_STATISTICS) */
 #ifdef TM_STATISTICS
+  unsigned int stat_retries;            /* Total number of consecutive aborts (retries) */
   unsigned int stat_commits;            /* Total number of commits (cumulative) */
   unsigned int stat_aborts;             /* Total number of aborts (cumulative) */
   unsigned int stat_retries_max;        /* Maximum number of consecutive aborts (retries) */
@@ -453,6 +461,14 @@ extern global_t _tinystm;
 
 static NOINLINE void
 stm_rollback(stm_tx_t *tx, stm_tx_abort_t reason);
+
+#if CM == CM_TIMESTAMP
+stm_tx_policy_t
+cm_timestamp(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict, entry_t c1, entry_t c2);
+#elif CM == CM_KARMA
+stm_tx_policy_t
+cm_karma(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict, entry_t c1, entry_t c2);
+#endif /* CM */
 
 #ifdef TRANSACTION_OPERATIONS
 static NOINLINE int
@@ -790,9 +806,9 @@ stm_allocate_rs_entries(stm_tx_t *tx, int extend)
 static NOINLINE void
 stm_allocate_ws_entries(stm_tx_t *tx, int extend)
 {
-#if CM == CM_MODULAR || defined(CONFLICT_TRACKING)
+#if defined(CONFLICT_TRACKING)
   int i, first = (extend ? tx->w_set.size : 0);
-#endif /* CM == CM_MODULAR || defined(CONFLICT_TRACKING) */
+#endif /* defined(CONFLICT_TRACKING) */
 #if MEMORY_MANAGEMENT != MM_NONE
   void *a;
 #endif /* MEMORY_MANAGEMENT */
@@ -818,11 +834,11 @@ stm_allocate_ws_entries(stm_tx_t *tx, int extend)
   /* Ensure that memory is aligned. */
   assert((((stm_word_t)tx->w_set.entries) & OWNED_MASK) == 0);
 
-#if CM == CM_MODULAR || defined(CONFLICT_TRACKING)
+#ifdef CONFLICT_TRACKING
   /* Initialize fields */
   for (i = first; i < tx->w_set.size; i++)
     tx->w_set.entries[i].tx = tx;
-#endif /* CM == CM_MODULAR || defined(CONFLICT_TRACKING) */
+#endif /* CONFLICT_TRACKING */
 }
 
 static INLINE r_entry_t *
@@ -971,10 +987,10 @@ int_stm_prepare(stm_tx_t *tx)
     stm_quiesce_barrier(tx, rollover_clock, NULL);
     goto start;
   }
-#if CM == CM_MODULAR
+#if CM == CM_TIMESTAMP
   if (tx->stat_retries == 0)
     tx->timestamp = tx->start;
-#endif /* CM == CM_MODULAR */
+#endif /* CM == CM_TIMESTAMP */
 
 #if MEMORY_MANAGEMENT != MM_NONE
   gc_set_epoch(tx->start);
@@ -1049,10 +1065,8 @@ stm_rollback(stm_tx_t *tx, stm_tx_abort_t reason)
  dropped:
 #endif /* TRANSACTION_OPERATIONS */
 
-#if CM == CM_MODULAR || defined(TM_STATISTICS)
-  tx->stat_retries++;
-#endif /* CM == CM_MODULAR || defined(TM_STATISTICS) */
 #ifdef TM_STATISTICS
+  tx->stat_retries++;
   tx->stat_aborts++;
   if (tx->stat_retries_max < tx->stat_retries)
     tx->stat_retries_max = tx->stat_retries;
@@ -1303,14 +1317,12 @@ int_stm_init_thread(void)
 #if DESIGN == WRITE_BACK_ETL_VR
   tx->visible_reads = 0;
 #endif /* DESIGN == WRITE_BACK_ETL_VR */
-#if CM == CM_MODULAR
+#if CM == CM_TIMESTAMP
   tx->timestamp = 0;
-#endif /* CM == CM_MODULAR */
-#if CM == CM_MODULAR || defined(TM_STATISTICS)
-  tx->stat_retries = 0;
-#endif /* CM == CM_MODULAR || defined(TM_STATISTICS) */
+#endif /* CM == CM_TIMESTAMP */
 #ifdef TM_STATISTICS
   /* Statistics */
+  tx->stat_retries = 0;
   tx->stat_commits = 0;
   tx->stat_aborts = 0;
   tx->stat_retries_max = 0;
@@ -1477,9 +1489,6 @@ int_stm_commit(stm_tx_t *tx)
 #ifdef TM_STATISTICS
   tx->stat_commits++;
 #endif /* TM_STATISTICS */
-#if CM == CM_MODULAR || defined(TM_STATISTICS)
-  tx->stat_retries = 0;
-#endif /* CM == CM_MODULAR || defined(TM_STATISTICS) */
 
 #if CM == CM_BACKOFF
   /* Reset backoff */

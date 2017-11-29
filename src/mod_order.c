@@ -84,7 +84,6 @@ void mod_order_init(void)
 {
   if (mod_order_initialized)
     return;
-#if CM == CM_MODULAR
   if (!stm_register(NULL, NULL, mod_order_on_start, mod_order_on_precommit, mod_order_on_commit, NULL, NULL)) {
     fprintf(stderr, "Could not set callbacks for module 'mod_order'. Exiting.\n");
     goto err;
@@ -101,8 +100,5 @@ void mod_order_init(void)
   mod_order_initialized = 1;
   return;
  err:
-#else /* CM != CM_MODULAR */
-  fprintf(stderr, "The 'mod_order' module requires CM_MODULAR.\n");
-#endif /* CM != CM_MODULAR */
   exit(1);
 }

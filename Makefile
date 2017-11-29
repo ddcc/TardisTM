@@ -54,6 +54,9 @@ DEFINES += -DDESIGN=WRITE_BACK_ETL
 # CM_SUICIDE: immediately abort the transaction that detects the
 #   conflict.
 #
+# CM_AGGRESSIVE: immediately abort the other transaction.  This feature
+#   requires TRANSACTION_OPERATIONS.
+#
 # CM_DELAY: like CM_SUICIDE but wait until the contended lock that
 #   caused the abort (if any) has been released before restarting the
 #   transaction.  The intuition is that the transaction will likely try
@@ -63,28 +66,25 @@ DEFINES += -DDESIGN=WRITE_BACK_ETL
 #   improves execution time on the processor.  This features requires
 #   CONTENDED_LOCK_TRACKING.
 #
+# CM_TIMESTAMP: kill youngest transaction.  This feature requires
+#   CONFLICT_TRACKING.
+#
 # CM_BACKOFF: like CM_SUICIDE but wait for a random delay before
 #   restarting the transaction.  The delay duration is chosen uniformly
 #   at random from a range whose size increases exponentially with every
 #   restart.
 #
-# CM_MODULAR: supports several built-in contention managers.  At the
-#   time, the following ones are supported:
-#   - SUICIDE: kill current transaction (i.e., the transaction that
-#     discovers the conflict).
-#   - AGGRESSIVE: kill other transaction.
-#   - DELAY: same as SUICIDE but wait for conflict resolution before
-#     restart.
-#   - TIMESTAMP: kill youngest transaction.
-#   One can also register custom contention managers. This features
-#   requires TRANSACTION_OPERATIONS.
+# CM_KARMA: kill transaction with least work done.  This feature requires
+#   CONFLICT_TRACKING.
 ########################################################################
 
 # Pick one contention manager (CM)
 DEFINES += -DCM=CM_SUICIDE
+# DEFINES += -DCM=CM_AGGRESSIVE
 # DEFINES += -DCM=CM_DELAY
+# DEFINES += -DCM=CM_TIMESTAMP
 # DEFINES += -DCM=CM_BACKOFF
-# DEFINES += -DCM=CM_MODULAR
+# DEFINES += -DCM=CM_KARMA
 
 ########################################################################
 # Enable irrevocable mode (required for using the library with a
@@ -178,7 +178,7 @@ DEFINES += -UCONTENDED_LOCK_TRACKING
 # the lock.  There is a small overhead with non-contended workloads but
 # it may significantly reduce the abort rate, especially with
 # transactions that read much data.  This feature only works with the
-# WRITE_BACK_ETL design and MODULAR contention manager.
+# WRITE_BACK_ETL design.
 ########################################################################
 
 # DEFINES += -DREAD_LOCKED_DATA
@@ -283,10 +283,12 @@ D := $(D:WRITE_THROUGH=3)
 D := $(D:MODULAR=4)
 D += -DWRITE_BACK_ETL=0 -DWRITE_BACK_ETL_VR=1 -DWRITE_BACK_CTL=2 -DWRITE_THROUGH=3 -DMODULAR=4
 D := $(D:CM_SUICIDE=0)
-D := $(D:CM_DELAY=1)
-D := $(D:CM_BACKOFF=2)
-D := $(D:CM_MODULAR=3)
-D += -DCM_SUICIDE=0 -DCM_DELAY=1 -DCM_BACKOFF=2 -DCM_MODULAR=3
+D := $(D:CM_AGGRESSIVE=1)
+D := $(D:CM_DELAY=2)
+D := $(D:CM_TIMESTAMP=3)
+D := $(D:CM_BACKOFF=4)
+D := $(D:CM_KARMA=5)
+D += -DCM_SUICIDE=0 -CM_AGGRESSIVE=1 -CM_DELAY=2 -CM_TIMESTAMP=3 -DCM_BACKOFF=4 -DCM_KARMA=5
 D := $(D:MM_NONE=0)
 D := $(D:MM_EPOCH_GC=1)
 D += -DMM_NONE=0 -DMM_EPOCH_GC=1

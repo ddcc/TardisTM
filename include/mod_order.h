@@ -26,7 +26,7 @@
 /**
  * @file
  *   Module to force transactions to commit in order. The first transaction that
- *   starts will be the first one to commit. This module requires CM_MODULAR.
+ *   starts will be the first one to commit.
  * @author
  *   Pascal Felber <pascal.felber@unine.ch>
  *   Patrick Marlier <patrick.marlier@unine.ch>

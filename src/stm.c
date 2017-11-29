@@ -53,9 +53,11 @@ static const char *design_names[] = {
 
 static const char *cm_names[] = {
   /* 0 */ "SUICIDE",
-  /* 1 */ "DELAY",
-  /* 2 */ "BACKOFF",
-  /* 3 */ "MODULAR"
+  /* 1 */ "AGGRESSIVE",
+  /* 2 */ "DELAY",
+  /* 3 */ "TIMESTAMP",
+  /* 4 */ "BACKOFF",
+  /* 5 */ "KARMA"
 };
 
 /* Global variables */
@@ -122,55 +124,33 @@ __thread long thread_gc = 0;
  * STATIC
  * ################################################################### */
 
-#if CM == CM_MODULAR
-/*
- * Kill other.
- */
-static stm_tx_policy_t
-cm_aggressive(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict, entry_t c1, entry_t c2)
-{
-  return STM_KILL_OTHER;
-}
-
-/*
- * Kill self.
- */
-static stm_tx_policy_t
-cm_suicide(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict, entry_t c1, entry_t c2)
-{
-  return STM_KILL_SELF;
-}
-
-/*
- * Kill self and wait before restart.
- */
-static stm_tx_policy_t
-cm_delay(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict, entry_t c1, entry_t c2)
-{
-  return STM_KILL_SELF | STM_DELAY;
-}
-
+#if CM == CM_TIMESTAMP
 /*
  * Oldest transaction has priority.
  */
-static stm_tx_policy_t
+stm_tx_policy_t
 cm_timestamp(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict, entry_t c1, entry_t c2)
 {
+  PRINT_DEBUG("==> cm_timestamp(%p[%lu-%lu],%p,%u,%lx,%lx)\n", me, (unsigned long)me->start, (unsigned long)me->end, other, conflict, c1, c2);
+
   if (me->timestamp < other->timestamp)
     return STM_KILL_OTHER;
   if (me->timestamp == other->timestamp && (uintptr_t)me < (uintptr_t)other)
     return STM_KILL_OTHER;
   return STM_KILL_SELF | STM_DELAY;
 }
+#endif /* CM == CM_TIMESTAMP */
 
+#if CM == CM_KARMA
 /*
  * Transaction with more work done has priority.
  */
-static stm_tx_policy_t
+stm_tx_policy_t
 cm_karma(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict, entry_t c1, entry_t c2)
 {
-
   unsigned int me_work, other_work;
+
+  PRINT_DEBUG("==> cm_karma(%p[%lu-%lu],%p,%u,%lx,%lx)\n", me, (unsigned long)me->start, (unsigned long)me->end, other, conflict, c1, c2);
 
   me_work = (me->w_set.nb_entries << 1) + me->r_set.nb_entries;
   other_work = (other->w_set.nb_entries << 1) + other->r_set.nb_entries;
@@ -181,19 +161,8 @@ cm_karma(struct stm_tx *me, struct stm_tx *other, stm_tx_conflict_t conflict, en
     return STM_KILL_OTHER;
   return STM_KILL_SELF;
 }
+#endif /* CM == CM_KARMA */
 
-struct {
-  const char *name;
-  stm_tx_policy_t (*f)(stm_tx_t *, stm_tx_t *, stm_tx_conflict_t, entry_t c1, entry_t c2);
-} cms[] = {
-  { "aggressive", cm_aggressive },
-  { "suicide", cm_suicide },
-  { "delay", cm_delay },
-  { "timestamp", cm_timestamp },
-  { "karma", cm_karma },
-  { NULL, NULL }
-};
-#endif /* CM == CM_MODULAR */
 
 #ifdef SIGNAL_HANDLER
 /*
@@ -598,28 +567,17 @@ stm_get_parameter(const char *name, void *val)
 _CALLCONV int
 stm_set_parameter(const char *name, void *val)
 {
-#if CM == CM_MODULAR
-  int i;
-
-  if (strcmp("cm_policy", name) == 0) {
-    for (i = 0; cms[i].name != NULL; i++) {
-      if (strcasecmp(cms[i].name, (const char *)val) == 0) {
-        _tinystm.conflict_cb = cms[i].f;
-        return 1;
-      }
-    }
-    return 0;
-  }
+#ifdef CONFLICT_TRACKING
   if (strcmp("cm_function", name) == 0) {
     _tinystm.conflict_cb = (const stm_tx_policy_t (*)(const stm_tx_t *, const stm_tx_t *, const stm_tx_conflict_t, const entry_t, const entry_t))val;
   }
-# if DESIGN == WRITE_BACK_ETL_VR
+#endif /* CONFLICT_TRACKING */
+#if DESIGN == WRITE_BACK_ETL_VR
   if (strcmp("vr_threshold", name) == 0) {
     _tinystm.vr_threshold = *(int *)val;
     return 1;
   }
 # endif /* DESIGN == WRITE_BACK_ETL_VR */
-#endif /* CM == CM_MODULAR */
   return 0;
 }
 
