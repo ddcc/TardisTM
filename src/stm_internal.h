@@ -86,6 +86,10 @@
 # error "SIGNAL_HANDLER can only be used with MEMORY_MANAGEMENT == MM_NONE"
 #endif /* MEMORY_MANAGEMENT != MM_NONE && defined(SIGNAL_HANDLER) */
 
+#if defined(TRANSACTION_OPERATIONS) && ! defined(CONFLICT_TRACKING)
+# error "TRANSACTION_OPERATIONS requires CONFLICT_TRACKING"
+#endif /* defined(TRANSACTION_OPERATIONS) && ! defined(CONFLICT_TRACKING) */
+
 #define TX_GET                          stm_tx_t *tx = tls_get_tx()
 
 #ifndef RW_SET_SIZE
@@ -149,19 +153,19 @@ typedef enum {                                /* Transaction status */
 #define STATUS_BITS                     4UL
 #define STATUS_MASK                     ((1UL << STATUS_BITS) - 1)
 
-#if CM == CM_MODULAR
+#ifdef TRANSACTION_OPERATIONS
 # define SET_STATUS(s, v)               ATOMIC_STORE_REL(&(s), ((s) & ~(stm_word_t)STATUS_MASK) | (v))
 # define INC_STATUS_COUNTER(s)          ((((s) >> STATUS_BITS) + 1) << STATUS_BITS)
 # define UPDATE_STATUS_RAW(s, v)        ATOMIC_STORE_REL(&(s), INC_STATUS_COUNTER(s) | (v))
 # define UPDATE_STATUS(s, os, v)        ATOMIC_CAS_FULL(&(s), os, INC_STATUS_COUNTER(os) | (v))
 # define GET_STATUS(s)                  ((s) & STATUS_MASK)
 # define GET_STATUS_COUNTER(s)          ((s) >> STATUS_BITS)
-#else /* CM != CM_MODULAR */
+#else /* TRANSACTION_OPERATIONS */
 # define SET_STATUS(s, v)               ((s) = (v))
 # define UPDATE_STATUS_RAW(s, v)        ((s) = (v))
 # define UPDATE_STATUS(s, os, v)        UPDATE_STATUS_RAW(s, v)
 # define GET_STATUS(s)                  ((s))
-#endif /* CM != CM_MODULAR */
+#endif /* TRANSACTION_OPERATIONS */
 #define IS_ACTIVE(s)                    ((GET_STATUS(s) & TX_ACTIVE_BIT) == TX_ACTIVE_BIT)
 
 /* ################################################################### *
@@ -187,16 +191,16 @@ typedef enum {                                /* Transaction status */
  * locks. A read-locked address can be read by an invisible reader.
  */
 
-#if CM == CM_MODULAR
+#ifdef TRANSACTION_OPERATIONS
 # define OWNED_BITS                     2UL                 /* 2 bits */
 # define WRITE_MASK                     0x01UL              /* 1 bit */
 # define READ_MASK                      0x02UL              /* 1 bit */
 # define OWNED_MASK                     (WRITE_MASK | READ_MASK)
-#else /* CM != CM_MODULAR */
+#else /* TRANSACTION_OPERATIONS */
 # define OWNED_BITS                     1UL                 /* 1 bit */
 # define WRITE_MASK                     0x01UL              /* 1 bit */
 # define OWNED_MASK                     (WRITE_MASK)
-#endif /* CM != CM_MODULAR */
+#endif /* TRANSACTION_OPERATIONS */
 #if DESIGN == WRITE_THROUGH
 # define INCARNATION_BITS               3UL                 /* 3 bits */
 # define INCARNATION_MAX                ((1UL << INCARNATION_BITS) - 1)
@@ -212,11 +216,11 @@ typedef enum {                                /* Transaction status */
 #define LOCK_GET_WRITE(l)               (l & WRITE_MASK)
 #define LOCK_SET_ADDR_WRITE(a)          (a | WRITE_MASK)    /* WRITE bit set */
 #define LOCK_GET_ADDR(l)                (l & ~(stm_word_t)OWNED_MASK)
-#if CM == CM_MODULAR
+#if TRANSACTION_OPERATIONS
 # define LOCK_GET_READ(l)               (l & READ_MASK)
 # define LOCK_SET_ADDR_READ(a)          (a | READ_MASK)     /* READ bit set */
 # define LOCK_UPGRADE(l)                (l | WRITE_MASK)
-#endif /* CM == CM_MODULAR */
+#endif /* TRANSACTION_OPERATIONS */
 #define LOCK_GET_TIMESTAMP(l)           (l >> (LOCK_BITS))
 #define LOCK_SET_TIMESTAMP(t)           (t << (LOCK_BITS))
 #if DESIGN == WRITE_THROUGH
@@ -449,6 +453,14 @@ extern global_t _tinystm;
 static NOINLINE void
 stm_rollback(stm_tx_t *tx, stm_tx_abort_t reason);
 
+#ifdef TRANSACTION_OPERATIONS
+static NOINLINE int
+stm_kill(stm_tx_t *tx, stm_tx_t *other, stm_word_t status);
+static NOINLINE void
+stm_drop(stm_tx_t *tx);
+#endif /* TRANSACTION_OPERATIONS */
+
+
 /* ################################################################### *
  * INLINE FUNCTIONS
  * ################################################################### */
@@ -590,9 +602,9 @@ static INLINE int
 stm_quiesce(stm_tx_t *tx, int block)
 {
   stm_tx_t *t;
-#if CM == CM_MODULAR
+#ifdef TRANSACTION_OPERATIONS
   stm_word_t s, c;
-#endif /* CM == CM_MODULAR */
+#endif /* TRANSACTION_OPERATIONS */
 
   PRINT_DEBUG("==> stm_quiesce(%p,%d)\n", tx, block);
 
@@ -614,7 +626,7 @@ stm_quiesce(stm_tx_t *tx, int block)
     if (t == tx)
       continue;
     /* Wait for all other transactions to become inactive */
-#if CM == CM_MODULAR
+#ifdef TRANSACTION_OPERATIONS
     s = t->status;
     if (IS_ACTIVE(s)) {
       c = GET_STATUS_COUNTER(s);
@@ -622,10 +634,10 @@ stm_quiesce(stm_tx_t *tx, int block)
         s = t->status;
       } while (IS_ACTIVE(s) && c == GET_STATUS_COUNTER(s));
     }
-#else /* CM != CM_MODULAR */
+#else /* TRANSACTION_OPERATIONS */
     while (IS_ACTIVE(t->status))
       ;
-#endif /* CM != CM_MODULAR */
+#endif /* TRANSACTION_OPERATIONS */
   }
   if (!block)
     pthread_mutex_unlock(&_tinystm.quiesce_mutex);
@@ -846,7 +858,7 @@ stm_add_to_rs(stm_tx_t *tx, volatile stm_word_t *lock, stm_word_t version) {
 # include "stm_wt.h"
 #endif /* DESIGN == MODULAR */
 
-#if CM == CM_MODULAR
+#ifdef TRANSACTION_OPERATIONS
 /*
  * Kill other transaction.
  */
@@ -924,7 +936,7 @@ stm_drop(stm_tx_t *tx)
     stm_allocate_ws_entries(tx, 0);
   }
 }
-#endif /* CM == CM_MODULAR */
+#endif /* TRANSACTION_OPERATIONS */
 
 /*
  * Initialize the transaction descriptor before start or restart.
@@ -992,9 +1004,9 @@ stm_rollback(stm_tx_t *tx, stm_tx_abort_t reason)
   unsigned long wait;
   volatile int j;
 #endif /* CM == CM_BACKOFF */
-#if CM == CM_MODULAR
+#ifdef TRANSACTION_OPERATIONS
   stm_word_t t;
-#endif /* CM == CM_MODULAR */
+#endif /* TRANSACTION_OPERATIONS */
 
   PRINT_DEBUG("==> stm_rollback(%p[%lu-%lu])\n", tx, (unsigned long)tx->start, (unsigned long)tx->end);
 
@@ -1005,7 +1017,7 @@ stm_rollback(stm_tx_t *tx, stm_tx_abort_t reason)
   assert((tx->irrevocable & 0x07) != 3);
 #endif /* IRREVOCABLE_ENABLED */
 
-#if CM == CM_MODULAR
+#ifdef TRANSACTION_OPERATIONS
   /* Set status to ABORTING */
   t = tx->status;
   if (GET_STATUS(t) == TX_KILLING || (IS_ACTIVE(t) && UPDATE_STATUS(tx->status, t, t + TX_ABORTED) == 0)) {
@@ -1015,7 +1027,7 @@ stm_rollback(stm_tx_t *tx, stm_tx_abort_t reason)
     stm_drop(tx);
     goto dropped;
   }
-#endif /* CM == CM_MODULAR */
+#endif /* TRANSACTION_OPERATIONS */
 
 #if DESIGN == WRITE_BACK_ETL
   stm_wbetl_rollback(tx);
@@ -1032,9 +1044,9 @@ stm_rollback(stm_tx_t *tx, stm_tx_abort_t reason)
     stm_wbetl_rollback(tx);
 #endif /* DESIGN == MODULAR */
 
-#if CM == CM_MODULAR
+#ifdef TRANSACTION_OPERATIONS
  dropped:
-#endif /* CM == CM_MODULAR */
+#endif /* TRANSACTION_OPERATIONS */
 
 #if CM == CM_MODULAR || defined(TM_STATISTICS)
   tx->stat_retries++;
@@ -1133,14 +1145,14 @@ stm_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_word_t 
   PRINT_DEBUG2("==> stm_write(t=%p[%lu-%lu],a=%p,d=%p-%lu,m=0x%lx)\n",
                tx, (unsigned long)tx->start, (unsigned long)tx->end, addr, (void *)value, (unsigned long)value, (unsigned long)mask);
 
-#if CM == CM_MODULAR
+#ifdef TRANSACTION_OPERATIONS
   if (GET_STATUS(tx->status) == TX_KILLING) {
     stm_rollback(tx, STM_ABORT_KILLED);
     return NULL;
   }
-#else /* CM != CM_MODULAR */
+#else /* TRANSACTION_OPERATIONS */
   assert(IS_ACTIVE(tx->status));
-#endif /* CM != CM_MODULAR */
+#endif /* TRANSACTION_OPERATIONS */
 
 #ifdef DEBUG
   /* Check consistency with read_only attribute. */
@@ -1406,9 +1418,9 @@ int_stm_start(stm_tx_t *tx, stm_tx_attr_t attr)
 static INLINE int
 int_stm_commit(stm_tx_t *tx)
 {
-#if CM == CM_MODULAR
+#ifdef TRANSACTION_OPERATIONS
   stm_word_t t;
-#endif /* CM == CM_MODULAR */
+#endif /* TRANSACTION_OPERATIONS */
 
   PRINT_DEBUG("==> stm_commit(%p[%lu-%lu])\n", tx, (unsigned long)tx->start, (unsigned long)tx->end);
 
@@ -1425,7 +1437,7 @@ int_stm_commit(stm_tx_t *tx)
 
   assert(IS_ACTIVE(tx->status));
 
-#if CM == CM_MODULAR
+#ifdef TRANSACTION_OPERATIONS
   /* Set status to COMMITTING */
   t = tx->status;
   if (GET_STATUS(t) == TX_KILLING || UPDATE_STATUS(tx->status, t, t + (TX_COMMITTING - GET_STATUS(t))) == 0) {
@@ -1434,7 +1446,9 @@ int_stm_commit(stm_tx_t *tx)
     stm_rollback(tx, STM_ABORT_KILLED);
     return 0;
   }
-#endif /* CM == CM_MODULAR */
+#else
+  SET_STATUS(tx->status, TX_COMMITTING);
+#endif /* TRANSACTION_OPERATIONS */
 
   /* A read-only transaction can commit immediately */
   if (unlikely(tx->w_set.nb_entries == 0))

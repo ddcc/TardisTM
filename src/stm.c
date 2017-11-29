@@ -914,9 +914,9 @@ static INLINE int
 int_stm_set_irrevocable(stm_tx_t *tx, int serial)
 {
 #ifdef IRREVOCABLE_ENABLED
-# if CM == CM_MODULAR
+# ifdef TRANSACTION_OPERATIONS
   stm_word_t t;
-# endif /* CM == CM_MODULAR */
+# endif /* TRANSACTION_OPERATIONS */
 
   if (!IS_ACTIVE(tx->status) && serial != -1) {
     /* Request irrevocability outside of a transaction or in abort handler (for next execution) */
@@ -965,14 +965,14 @@ int_stm_set_irrevocable(stm_tx_t *tx, int serial)
     }
 #endif /* DESIGN == MODULAR */
 
-# if CM == CM_MODULAR
+# ifdef TRANSACTION_OPERATIONS
    /* We might still abort if we cannot set status (e.g., we are being killed) */
     t = tx->status;
     if (GET_STATUS(t) != TX_ACTIVE_BIT || UPDATE_STATUS(tx->status, t, t + (TX_IRREVOCABLE - TX_ACTIVE_BIT)) == 0) {
       stm_rollback(tx, STM_ABORT_KILLED);
       return 0;
     }
-# endif /* CM == CM_MODULAR */
+# endif /* TRANSACTION_OPERATIONS */
     if (serial && tx->w_set.nb_entries != 0) {
       /* TODO: or commit the transaction when we have the irrevocability. */
       /* Don't mix transactional and direct accesses => restart with direct accesses */

@@ -29,12 +29,6 @@
 #include "stm_internal.h"
 #include "atomic.h"
 
-#if CM == CM_MODULAR
-/* Function declaration */
-static NOINLINE void stm_drop(stm_tx_t *tx);
-static NOINLINE int stm_kill(stm_tx_t *tx, stm_tx_t *other, stm_word_t status);
-#endif /* CM == CM_MODULAR */
-
 static INLINE int
 stm_wbetl_validate(stm_tx_t *tx)
 {
@@ -123,9 +117,9 @@ stm_wbetl_rollback(stm_tx_t *tx)
 {
   w_entry_t *w;
   int i;
-#if CM == CM_MODULAR
+#ifdef TRANSACTION_OPERATIONS
   stm_word_t t;
-#endif /* CM == CM_MODULAR */
+#endif /* TRANSACTION_OPERATIONS */
 #if CM == CM_BACKOFF
   unsigned long wait;
   volatile int j;
@@ -134,7 +128,7 @@ stm_wbetl_rollback(stm_tx_t *tx)
   PRINT_DEBUG("==> stm_wbetl_rollback(%p[%lu-%lu])\n", tx, (unsigned long)tx->start, (unsigned long)tx->end);
 
   assert(IS_ACTIVE(tx->status));
-#if CM == CM_MODULAR
+#ifdef TRANSACTION_OPERATIONS
   /* Set status to ABORTING */
   t = tx->status;
   if (GET_STATUS(t) == TX_KILLING || (GET_STATUS(t) == TX_ACTIVE_BIT && UPDATE_STATUS(tx->status, t, t + TX_ABORTED) == 0)) {
@@ -144,7 +138,7 @@ stm_wbetl_rollback(stm_tx_t *tx)
     stm_drop(tx);
     return;
   }
-#endif /* CM == CM_MODULAR */
+#endif /* TRANSACTION_OPERATIONS */
 
   /* Drop locks */
   i = tx->w_set.nb_entries;
@@ -170,16 +164,16 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
   volatile stm_word_t *lock;
   stm_word_t l, l2, value, version;
   w_entry_t *w;
-#if CM == CM_MODULAR
+#ifdef TRANSACTION_OPERATIONS
   stm_word_t t;
   stm_tx_policy_t decision;
-#endif /* CM == CM_MODULAR */
+#endif /* TRANSACTION_OPERATIONS */
 
   PRINT_DEBUG2("==> stm_wbetl_read_invisible(t=%p[%lu-%lu],a=%p)\n", tx, (unsigned long)tx->start, (unsigned long)tx->end, addr);
 
-#if CM != CM_MODULAR
+#ifdef TRANSACTION_OPERATIONS
   assert(IS_ACTIVE(tx->status));
-#endif /* CM != CM_MODULAR */
+#endif /* TRANSACTION_OPERATIONS */
 
   /* Get reference to lock */
   lock = GET_LOCK(addr);
@@ -206,12 +200,12 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
         if (w->next == NULL) {
           /* No: get value from memory */
           value = ATOMIC_LOAD(addr);
-# if CM == CM_MODULAR
+#ifdef TRANSACTION_OPERATIONS
           if (GET_STATUS(tx->status) == TX_KILLING) {
             stm_rollback(tx, STM_ABORT_KILLED);
             return 0;
           }
-# endif /* CM == CM_MODULAR */
+#endif /* TRANSACTION_OPERATIONS */
           break;
         }
         w = w->next;
@@ -220,25 +214,25 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
       return value;
     }
 
-# ifdef UNIT_TX
+#ifdef UNIT_TX
     if (l == LOCK_UNIT) {
       /* Data modified by a unit store: should not last long => retry */
       goto restart;
     }
-# endif /* UNIT_TX */
+#endif /* UNIT_TX */
 
     /* Conflict: CM kicks in (we could also check for duplicate reads and get value from read set) */
-# if defined(IRREVOCABLE_ENABLED) && defined(IRREVOCABLE_IMPROVED)
+#if defined(IRREVOCABLE_ENABLED) && defined(IRREVOCABLE_IMPROVED)
     if (tx->irrevocable && ATOMIC_LOAD(&_tinystm.irrevocable) == 1)
       ATOMIC_STORE(&_tinystm.irrevocable, 2);
-# endif /* defined(IRREVOCABLE_ENABLED) && defined(IRREVOCABLE_IMPROVED) */
-# if CM != CM_MODULAR && defined(IRREVOCABLE_ENABLED)
+#endif /* defined(IRREVOCABLE_ENABLED) && defined(IRREVOCABLE_IMPROVED) */
+#if CM != CM_MODULAR && defined(IRREVOCABLE_ENABLED)
     if (unlikely(tx->irrevocable)) {
       /* Spin while locked */
       goto restart;
     }
-# endif /* CM != CM_MODULAR && defined(IRREVOCABLE_ENABLED) */
-# if CM == CM_MODULAR
+#endif /* CM != CM_MODULAR && defined(IRREVOCABLE_ENABLED) */
+#ifdef TRANSACTION_OPERATIONS
     t = w->tx->status;
     l2 = ATOMIC_LOAD_ACQ(lock);
     if (l != l2) {
@@ -249,12 +243,12 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
       /* Transaction status has changed: restart the whole procedure */
       goto restart;
     }
-#  ifdef READ_LOCKED_DATA
-#   ifdef IRREVOCABLE_ENABLED
+# ifdef READ_LOCKED_DATA
+#  ifdef IRREVOCABLE_ENABLED
     if (IS_ACTIVE(t) && !tx->irrevocable)
-#   else /* ! IRREVOCABLE_ENABLED */
+#  else /* ! IRREVOCABLE_ENABLED */
     if (GET_STATUS(t) == TX_ACTIVE_BIT)
-#   endif /* ! IRREVOCABLE_ENABLED */
+#  endif /* ! IRREVOCABLE_ENABLED */
     {
       /* Read old version */
       version = ATOMIC_LOAD(&w->version);
@@ -277,15 +271,15 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
       tx->stat_locked_reads_failed++;
 #  endif /* TM_STATISTICS2 */
     }
-#  endif /* READ_LOCKED_DATA */
+# endif /* READ_LOCKED_DATA */
     if (GET_STATUS(t) == TX_KILLING) {
       /* We can safely steal lock */
       decision = STM_KILL_OTHER;
     } else {
       decision =
-#  ifdef IRREVOCABLE_ENABLED
+# ifdef IRREVOCABLE_ENABLED
         GET_STATUS(tx->status) == TX_IRREVOCABLE ? STM_KILL_OTHER :
-#  endif /* IRREVOCABLE_ENABLED */
+# endif /* IRREVOCABLE_ENABLED */
 # ifdef CONFLICT_TRACKING
         _tinystm.conflict_cb != NULL ? _tinystm.conflict_cb(tx, w->tx, STM_RW_CONFLICT, ENTRY_FROM_WRITE(w), 0) :
 # endif /* CONFLICT_TRACKING */
@@ -307,11 +301,13 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
       goto restart_no_load;
     }
     /* Kill self */
+# if CM == CM_DELAY || CM == CM_MODULAR
     if ((decision & STM_DELAY) != 0)
       tx->c_lock = lock;
-# elif CM == CM_DELAY
+# endif /* CM == CM_DELAY || CM == CM_MODULAR */
+#elif CM == CM_DELAY
     tx->c_lock = lock;
-# endif /* CM == CM_DELAY */
+#endif /* CM == CM_DELAY */
     /* Abort */
     stm_rollback(tx, STM_ABORT_RW_CONFLICT);
     return 0;
@@ -329,14 +325,14 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
       goto return_value;
 #endif /* IRREVOCABLE_ENABLED */
     /* Check timestamp */
-#if CM == CM_MODULAR
+#ifdef TRANSACTION_OPERATIONS
     if (LOCK_GET_READ(l))
       version = ((w_entry_t *)LOCK_GET_ADDR(l))->version;
     else
       version = LOCK_GET_TIMESTAMP(l);
-#else /* CM != CM_MODULAR */
+#else
     version = LOCK_GET_TIMESTAMP(l);
-#endif /* CM != CM_MODULAR */
+#endif /* TRANSACTION_OPERATIONS */
     /* Valid version? */
     if (unlikely(version > tx->end)) {
       /* No: try to extend first (except for read-only transactions: no read set) */
@@ -359,13 +355,13 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
       }
       /* Worked: we now have a good version (version <= tx->end) */
     }
-#if CM == CM_MODULAR
+#ifdef TRANSACTION_OPERATIONS
     /* Check if killed (necessary to avoid possible race on read-after-write) */
     if (GET_STATUS(tx->status) == TX_KILLING) {
       stm_rollback(tx, STM_ABORT_KILLED);
       return 0;
     }
-#endif /* CM == CM_MODULAR */
+#endif /* TRANSACTION_OPERATIONS */
   }
   /* We have a good version: add to read set (update transactions) and return value */
 
@@ -529,10 +525,10 @@ stm_wbetl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_w
   stm_word_t l, version;
   r_entry_t *r;
   w_entry_t *w, *prev = NULL;
-#if CM == CM_MODULAR
-  stm_tx_policy_t decision;
+#ifdef TRANSACTION_OPERATIONS
   stm_word_t l2, t;
-#endif /* CM == CM_MODULAR */
+  stm_tx_policy_t decision;
+#endif /* TRANSACTION_OPERATIONS */
 
   PRINT_DEBUG2("==> stm_wbetl_write(t=%p[%lu-%lu],a=%p,d=%p-%lu,m=0x%lx)\n",
                tx, (unsigned long)tx->start, (unsigned long)tx->end, addr, (void *)value, (unsigned long)value, (unsigned long)mask);
@@ -559,7 +555,7 @@ stm_wbetl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_w
     /* Simply check if address falls inside our write set (avoids non-faulting load) */
     if (likely(tx->w_set.entries <= w && w < tx->w_set.entries + tx->w_set.nb_entries)) {
       /* Yes */
-#if CM == CM_MODULAR
+#ifdef TRANSACTION_OPERATIONS
       /* If read-locked: upgrade lock */
       if (!LOCK_GET_WRITE(l)) {
         if (ATOMIC_CAS_FULL(lock, l, LOCK_UPGRADE(l)) == 0) {
@@ -569,7 +565,7 @@ stm_wbetl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_w
         }
         tx->w_set.has_writes++;
       }
-#endif /* CM == CM_MODULAR */
+#endif /* TRANSACTION_OPERATIONS */
       if (mask == 0) {
         /* No need to insert new entry or modify existing one */
         return w;
@@ -616,7 +612,7 @@ stm_wbetl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_w
       goto restart;
     }
 #endif /* CM != CM_MODULAR && defined(IRREVOCABLE_ENABLED) */
-#if CM == CM_MODULAR
+#ifdef TRANSACTION_OPERATIONS
     t = w->tx->status;
     l2 = ATOMIC_LOAD_ACQ(lock);
     if (l != l2) {
@@ -653,8 +649,10 @@ stm_wbetl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_w
       goto acquire;
     }
     /* Kill self */
+# if CM == CM_DELAY || CM == CM_MODULAR
     if ((decision & STM_DELAY) != 0)
       tx->c_lock = lock;
+# endif /* CM == CM_DELAY || CM == CM_MODULAR */
 #elif CM == CM_DELAY
     tx->c_lock = lock;
 #endif /* CM == CM_DELAY */

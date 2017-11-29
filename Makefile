@@ -71,7 +71,8 @@ DEFINES += -DDESIGN=WRITE_BACK_ETL
 #   - DELAY: same as SUICIDE but wait for conflict resolution before
 #     restart.
 #   - TIMESTAMP: kill youngest transaction.
-#   One can also register custom contention managers.
+#   One can also register custom contention managers. This features
+#   requires TRANSACTION_OPERATIONS.
 ########################################################################
 
 # Pick one contention manager (CM)
@@ -150,6 +151,14 @@ DEFINES += -DMEMORY_MANAGEMENT=MM_NONE
 
 # DEFINES += -DCONFLICT_TRACKING
 DEFINES += -UCONFLICT_TRACKING
+
+########################################################################
+# Allow transactions to kill other transactions. This features requires
+# TRANSACTION_OPERATIONS.
+########################################################################
+
+# DEFINES += -DTRANSACTION_OPERATIONS
+DEFINES += -UTRANSACTION_OPERATIONS
 
 ########################################################################
 # Allow transactions to read the previous version of locked memory
