@@ -1723,6 +1723,13 @@ int_stm_aborted(const stm_tx_t *tx)
 }
 
 static INLINE int
+int_stm_committing(const stm_tx_t *tx)
+{
+  assert (tx != NULL);
+  return (GET_STATUS(tx->status) == TX_COMMITTING);
+}
+
+static INLINE int
 int_stm_irrevocable(const stm_tx_t *tx)
 {
   assert (tx != NULL);

@@ -495,6 +495,17 @@ int stm_aborted_tx(const struct stm_tx *tx) _CALLCONV;
 
 //@{
 /**
+ * Check if the current transaction is committing.
+ *
+ * @return
+ *   True (non-zero) if the transaction is committing, false (zero) otherwise.
+ */
+int stm_committing(void) _CALLCONV;
+int stm_committing_tx(const struct stm_tx *tx) _CALLCONV;
+//@}
+
+//@{
+/**
  * Check if the current transaction is still active and in irrevocable
  * state.
  *

@@ -294,20 +294,20 @@ stm_wbctl_write(stm_tx_t *tx, volatile stm_word_t *addr, const stm_word_t value,
   }
   /* Handle write after reads (before CAS) */
   version = LOCK_GET_TIMESTAMP(l);
-#ifdef IRREVOCABLE_ENABLED
+# ifdef IRREVOCABLE_ENABLED
   /* In irrevocable mode, no need to revalidate */
   if (tx->irrevocable)
     goto acquire_no_check;
-#endif /* IRREVOCABLE_ENABLED */
+# endif /* IRREVOCABLE_ENABLED */
  acquire:
   if (version > tx->end) {
     /* We might have read an older version previously */
-#ifdef UNIT_TX
+# ifdef UNIT_TX
     if (tx->attr.no_extend) {
       stm_rollback(tx, STM_ABORT_VAL_WRITE);
       return NULL;
     }
-#endif /* UNIT_TX */
+# endif /* UNIT_TX */
 retry:
     if ((r = stm_has_read(tx, lock)) != NULL && r->version != version) {
       /* Read version must be older (otherwise, tx->end >= version) */
@@ -316,13 +316,13 @@ retry:
         .entries.type = STM_WR_VALIDATE,
         .entries.e1 = ENTRY_FROM_READ_POINTER(tx, r),
         .entries.e2 = w ? ENTRY_FROM_WRITE_POINTER(tx, w) : ENTRY_INVALID,
-#ifdef CONFLICT_TRACKING
+# ifdef CONFLICT_TRACKING
         .other = NULL,
         .status = 0,
-#endif /* CONFLICT_TRACKING */
-#ifdef CONTENDED_LOCK_TRACKING
+# endif /* CONFLICT_TRACKING */
+# ifdef CONTENDED_LOCK_TRACKING
         .lock = lock,
-#endif /* CONTENDED_LOCK_TRACKING */
+# endif /* CONTENDED_LOCK_TRACKING */
       };
 
       stm_tx_policy_t decision = stm_conflict_handle_all(tx, &conflict);
@@ -340,9 +340,9 @@ retry:
     }
   }
   /* Acquire lock (ETL) */
-#ifdef IRREVOCABLE_ENABLED
+# ifdef IRREVOCABLE_ENABLED
  acquire_no_check:
-#endif /* IRREVOCABLE_ENABLED */
+# endif /* IRREVOCABLE_ENABLED */
   /* We own the lock here (ETL) */
 do_write:
   /* Add address to write set */

@@ -437,6 +437,22 @@ stm_aborted_tx(const stm_tx_t *tx)
  * Called by the CURRENT thread to inquire about the status of a transaction.
  */
 _CALLCONV int
+stm_committing(void)
+{
+  TX_GET;
+  return int_stm_committing(tx);
+}
+
+_CALLCONV int
+stm_committing_tx(const stm_tx_t *tx)
+{
+  return int_stm_committing(tx);
+}
+
+/*
+ * Called by the CURRENT thread to inquire about the status of a transaction.
+ */
+_CALLCONV int
 stm_irrevocable(void)
 {
   TX_GET;
