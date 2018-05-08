@@ -257,17 +257,29 @@ typedef enum {                                /* Transaction status */
  * We try to avoid collisions as much as possible (two addresses covered by the same lock).
  */
 #define LOCK_ARRAY_SIZE                 (1UL << LOCK_ARRAY_LOG_SIZE)
-#define LOCK_MASK                       (LOCK_ARRAY_SIZE - 1)
-#define LOCK_SHIFT                      (((sizeof(stm_word_t) == 4) ? 2 : 3) + LOCK_SHIFT_EXTRA)
-#define LOCK_IDX(a)                     (((stm_word_t)(a) >> LOCK_SHIFT) & LOCK_MASK)
-#ifdef LOCK_IDX_SWAP
-# if LOCK_ARRAY_LOG_SIZE < 16
-#  error "LOCK_IDX_SWAP requires LOCK_ARRAY_LOG_SIZE to be at least 16"
-# endif /* LOCK_ARRAY_LOG_SIZE < 16 */
-# define GET_LOCK(a)                    (_tinystm.locks + lock_idx_swap(LOCK_IDX(a)))
-#else /* ! LOCK_IDX_SWAP */
-# define GET_LOCK(a)                    (_tinystm.locks + LOCK_IDX(a))
-#endif /* ! LOCK_IDX_SWAP */
+#define LOCK_READ(l)                    (ATOMIC_LOAD(&l->contents))
+#define LOCK_READ_ACQ(l)                (ATOMIC_LOAD_ACQ(&l->contents))
+#define LOCK_WRITE(l, t)                (ATOMIC_STORE(&l->contents, t))
+#define LOCK_WRITE_REL(l, t)            (ATOMIC_STORE_REL(&l->contents, t))
+#define LOCK_WRITE_CAS(l, v, t)         (ATOMIC_CAS_FULL(&l->contents, v, t))
+
+typedef stm_word_t stm_version_t;
+
+typedef struct {
+  volatile stm_version_t contents;
+} stm_lock_t;
+
+# define LOCK_MASK                      (LOCK_ARRAY_SIZE - 1)
+# define LOCK_SHIFT                     (((sizeof(stm_word_t) == 4) ? 2 : 3) + LOCK_SHIFT_EXTRA)
+# define LOCK_IDX(a)                    (((stm_word_t)(a) >> LOCK_SHIFT) & LOCK_MASK)
+# ifdef LOCK_IDX_SWAP
+#  if LOCK_ARRAY_LOG_SIZE < 16
+#   error "LOCK_IDX_SWAP requires LOCK_ARRAY_LOG_SIZE to be at least 16"
+#  endif /* LOCK_ARRAY_LOG_SIZE < 16 */
+#  define GET_LOCK(a)                   (_tinystm.locks + lock_idx_swap(LOCK_IDX(a)))
+# else /* ! LOCK_IDX_SWAP */
+#  define GET_LOCK(a)                   (_tinystm.locks + LOCK_IDX(a))
+# endif /* ! LOCK_IDX_SWAP */
 
 /* ################################################################### *
  * CLOCK
@@ -303,8 +315,8 @@ typedef uintptr_t entry_t;
 #define ENTRY_FROM_WRITE(w)             ((entry_t)w)
 
 typedef struct r_entry {                /* Read set entry */
-  stm_word_t version;                   /* Version read */
-  volatile stm_word_t *lock;            /* Pointer to lock (for fast access) */
+  const stm_lock_t *lock;               /* Pointer to lock (for fast access) */
+  stm_version_t version;                /* Version read */
 } r_entry_t;
 
 typedef struct r_set {                  /* Read set */
@@ -316,11 +328,11 @@ typedef struct r_set {                  /* Read set */
 typedef struct w_entry {                /* Write set entry */
   union {                               /* For padding... */
     struct {
+      const stm_lock_t *lock;           /* Pointer to lock (for fast access) */
       volatile stm_word_t *addr;        /* Address written */
       stm_word_t value;                 /* New (write-back) or old (write-through) value */
       stm_word_t mask;                  /* Write mask */
-      stm_word_t version;               /* Version overwritten */
-      volatile stm_word_t *lock;        /* Pointer to lock (for fast access) */
+      stm_version_t version;            /* Version overwritten */
 #ifdef CONFLICT_TRACKING
       struct stm_tx *tx;                /* Transaction owning the write set */
 #endif /* CONFLICT_TRACKING */
@@ -372,8 +384,8 @@ typedef struct stm_tx {                 /* Transaction descriptor */
   JMP_BUF env;                          /* Environment for setjmp/longjmp */
   stm_tx_attr_t attr;                   /* Transaction attributes (user-specified) */
   volatile tx_status_t status;          /* Transaction status */
-  stm_word_t start;                     /* Start timestamp */
-  stm_word_t end;                       /* End timestamp (validity range) */
+  stm_version_t start;                  /* Start timestamp */
+  stm_version_t end;                    /* End timestamp (validity range) */
   r_set_t r_set;                        /* Read set */
   w_set_t w_set;                        /* Write set */
 #ifdef IRREVOCABLE_ENABLED
@@ -389,7 +401,7 @@ typedef struct stm_tx {                 /* Transaction descriptor */
   pthread_t thread_id;                  /* Thread identifier (immutable) */
 #endif /* CONFLICT_TRACKING */
 #ifdef CONTENDED_LOCK_TRACKING
-  volatile stm_word_t *c_lock;          /* Pointer to contented lock (cause of abort) */
+  const stm_lock_t *c_lock;             /* Pointer to contented lock (cause of abort) */
 #endif /* CONTENDED_LOCK_TRACKING */
 #if CM == CM_BACKOFF
   unsigned long backoff;                /* Maximum backoff duration */
@@ -419,7 +431,7 @@ typedef struct stm_tx {                 /* Transaction descriptor */
 
 /* This structure should be ordered by hot and cold variables */
 typedef struct {
-  volatile stm_word_t locks[LOCK_ARRAY_SIZE] ALIGNED;
+  stm_lock_t locks[LOCK_ARRAY_SIZE] ALIGNED;
   volatile stm_word_t gclock[512 / sizeof(stm_word_t)] ALIGNED;
 #ifdef CONFLICT_TRACKING
   const stm_tx_policy_t (*conflict_cb)(const stm_tx_t *, const stm_tx_t *, const stm_tx_conflict_t, const entry_t, const entry_t);
@@ -719,7 +731,7 @@ rollover_clock(void *arg)
   /* Reset clock */
   CLOCK = 0;
   /* Reset timestamps */
-  memset((void *)_tinystm.locks, 0, LOCK_ARRAY_SIZE * sizeof(stm_word_t));
+  memset((void *)_tinystm.locks, 0, LOCK_ARRAY_SIZE * sizeof(*_tinystm.locks));
 #if MEMORY_MANAGEMENT != MM_NONE
   /* Reset GC */
   gc_reset();
@@ -730,7 +742,7 @@ rollover_clock(void *arg)
  * Check if stripe has been read previously.
  */
 static INLINE r_entry_t *
-stm_has_read(stm_tx_t *tx, volatile stm_word_t *lock)
+stm_has_read(stm_tx_t *tx, const stm_lock_t *lock)
 {
   r_entry_t *r;
   int i;
@@ -842,7 +854,7 @@ stm_allocate_ws_entries(stm_tx_t *tx, int extend)
 }
 
 static INLINE r_entry_t *
-stm_add_to_rs(stm_tx_t *tx, volatile stm_word_t *lock, stm_word_t version) {
+stm_add_to_rs(stm_tx_t *tx, const stm_lock_t *lock, stm_word_t version) {
   r_entry_t *r;
 
   /* No need to add to read set for read-only transaction */
@@ -928,7 +940,7 @@ static NOINLINE void
 stm_drop(stm_tx_t *tx)
 {
   w_entry_t *w;
-  stm_word_t l;
+  stm_version_t l;
   int i;
 
   PRINT_DEBUG("==> stm_drop(%p[%lu-%lu])\n", tx, (unsigned long)tx->start, (unsigned long)tx->end);
@@ -938,10 +950,10 @@ stm_drop(stm_tx_t *tx)
   if (i > 0) {
     w = tx->w_set.entries;
     for (; i > 0; i--, w++) {
-      l = ATOMIC_LOAD_ACQ(w->lock);
+      l = LOCK_READ_ACQ(w->lock);
       if (LOCK_GET_OWNED(l) && (w_entry_t *)LOCK_GET_ADDR(l) == w) {
         /* Drop using CAS */
-        ATOMIC_CAS_FULL(w->lock, l, LOCK_SET_TIMESTAMP(w->version));
+        LOCK_WRITE_CAS(w->lock, l, LOCK_SET_TIMESTAMP(w->version));
         /* If CAS fail, lock has been stolen or already released in case a lock covers multiple addresses */
       }
     }
@@ -1115,10 +1127,11 @@ stm_rollback(stm_tx_t *tx, stm_tx_abort_t reason)
 #endif /* CM == CM_BACKOFF */
 
 #ifdef CONTENDED_LOCK_TRACKING
+  const stm_lock_t *l = (stm_lock_t *)ATOMIC_LOAD_ACQ(&tx->c_lock);
   /* Wait until contented lock is free */
   if (tx->c_lock != NULL) {
     /* Busy waiting (yielding is expensive) */
-    while (LOCK_GET_OWNED(ATOMIC_LOAD(tx->c_lock))) {
+    while (LOCK_GET_OWNED(LOCK_READ(l))) {
 # ifdef WAIT_YIELD
       sched_yield();
 # endif /* WAIT_YIELD */
@@ -1359,7 +1372,7 @@ static INLINE void
 int_stm_exit_thread(stm_tx_t *tx)
 {
 #if MEMORY_MANAGEMENT != MM_NONE
-  stm_word_t t;
+  stm_version_t t;
 #endif /* MEMORY_MANAGEMENT */
 
   PRINT_DEBUG("==> stm_exit_thread(%p[%lu-%lu])\n", tx, (unsigned long)tx->start, (unsigned long)tx->end);
@@ -1722,4 +1735,3 @@ int_stm_get_specific(stm_tx_t *tx, int key)
 }
 
 #endif /* _STM_INTERNAL_H_ */
-

@@ -38,7 +38,7 @@ stm_wbetl_validate(stm_tx_t *tx)
 {
   r_entry_t *r;
   int i;
-  stm_word_t l;
+  stm_version_t l;
 
   PRINT_DEBUG("==> stm_wbetl_validate(%p[%lu-%lu])\n", tx, (unsigned long)tx->start, (unsigned long)tx->end);
 
@@ -46,7 +46,7 @@ stm_wbetl_validate(stm_tx_t *tx)
   r = tx->r_set.entries;
   for (i = tx->r_set.nb_entries; i > 0; i--, r++) {
     /* Read lock */
-    l = ATOMIC_LOAD(r->lock);
+    l = LOCK_READ_ACQ(r->lock);
     /* Unlocked and still the same version? */
     if (LOCK_GET_OWNED(l)) {
       /* Do we own the lock? */
@@ -93,7 +93,7 @@ stm_wbetl_validate(stm_tx_t *tx)
 static INLINE int
 stm_wbetl_extend(stm_tx_t *tx)
 {
-  stm_word_t now;
+  stm_version_t now;
 
   PRINT_DEBUG("==> stm_wbetl_extend(%p[%lu-%lu])\n", tx, (unsigned long)tx->start, (unsigned long)tx->end);
 
@@ -151,7 +151,7 @@ stm_wbetl_rollback(stm_tx_t *tx)
     for (; i > 0; i--, w++) {
       if (w->next == NULL) {
         /* Only drop lock for last covered address in write set */
-        ATOMIC_STORE(w->lock, LOCK_SET_TIMESTAMP(w->version));
+        LOCK_WRITE(w->lock, LOCK_SET_TIMESTAMP(w->version));
       }
     }
     /* Make sure that all lock releases become visible */
@@ -165,8 +165,10 @@ stm_wbetl_rollback(stm_tx_t *tx)
 static INLINE stm_word_t
 stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
 {
-  volatile stm_word_t *lock;
-  stm_word_t l, l2, value, version;
+  const stm_lock_t *lock;
+  stm_version_t l, l2;
+  stm_word_t value;
+  stm_version_t version;
   w_entry_t *w;
 #ifdef TRANSACTION_OPERATIONS
   stm_word_t t;
@@ -186,7 +188,7 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
 
   /* Read lock, value, lock */
  restart:
-  l = ATOMIC_LOAD_ACQ(lock);
+  l = LOCK_READ_ACQ(lock);
  restart_no_load:
   if (unlikely(LOCK_GET_WRITE(l))) {
     /* Locked */
@@ -238,7 +240,7 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
 #endif /* IRREVOCABLE_ENABLED */
 #ifdef TRANSACTION_OPERATIONS
     t = w->tx->status;
-    l2 = ATOMIC_LOAD_ACQ(lock);
+    l2 = LOCK_READ_ACQ(lock);
     if (l != l2) {
       l = l2;
       goto restart_no_load;
@@ -299,7 +301,7 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
     if (decision == STM_KILL_OTHER) {
       /* Steal lock */
       l2 = LOCK_SET_TIMESTAMP(w->version);
-      if (ATOMIC_CAS_FULL(lock, l, l2) == 0)
+      if (LOCK_WRITE_CAS(lock, l, l2) == 0)
         goto restart;
       l = l2;
       goto restart_no_load;
@@ -316,7 +318,7 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
   } else {
     /* Not locked */
     value = ATOMIC_LOAD_ACQ(addr);
-    l2 = ATOMIC_LOAD_ACQ(lock);
+    l2 = LOCK_READ_ACQ(lock);
     if (unlikely(l != l2)) {
       l = l2;
       goto restart_no_load;
@@ -350,7 +352,7 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
       /* Verify that version has not been overwritten (read value has not
        * yet been added to read set and may have not been checked during
        * extend) */
-      l2 = ATOMIC_LOAD_ACQ(lock);
+      l2 = LOCK_READ_ACQ(lock);
       if (l != l2) {
         l = l2;
         goto restart_no_load;
@@ -382,8 +384,10 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
 static INLINE stm_word_t
 stm_wbetl_read_visible(stm_tx_t *tx, volatile stm_word_t *addr)
 {
-  volatile stm_word_t *lock;
-  stm_word_t l, l2, t, value, version;
+  const stm_lock_t *lock;
+  stm_version_t l, l2;
+  stm_word_t t value;
+  stm_version_t version;
   w_entry_t *w;
   stm_tx_policy_t decision;
 
@@ -399,7 +403,7 @@ stm_wbetl_read_visible(stm_tx_t *tx, volatile stm_word_t *addr)
 
   /* Try to acquire lock */
  restart:
-  l = ATOMIC_LOAD_ACQ(lock);
+  l = LOCK_READ_ACQ(lock);
  restart_no_load:
   if (LOCK_GET_OWNED(l)) {
     /* Locked */
@@ -446,7 +450,7 @@ stm_wbetl_read_visible(stm_tx_t *tx, volatile stm_word_t *addr)
       ATOMIC_STORE(&_tinystm.irrevocable, 2);
 # endif /* defined(IRREVOCABLE_ENABLED) && defined(IRREVOCABLE_IMPROVED) */
     t = w->tx->status;
-    l2 = ATOMIC_LOAD_ACQ(lock);
+    l2 = LOCK_READ_ACQ(lock);
     if (l != l2) {
       l = l2;
       goto restart_no_load;
@@ -525,12 +529,14 @@ stm_wbetl_read(stm_tx_t *tx, volatile stm_word_t *addr)
 static INLINE w_entry_t *
 stm_wbetl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_word_t mask)
 {
-  volatile stm_word_t *lock;
-  stm_word_t l, version;
+  const stm_lock_t *lock;
+  stm_version_t l;
+  stm_version_t version;
   r_entry_t *r;
   w_entry_t *w, *prev = NULL;
 #ifdef TRANSACTION_OPERATIONS
-  stm_word_t l2, t;
+  stm_version_t l2;
+  stm_word_t t;
   stm_tx_policy_t decision;
 #endif /* TRANSACTION_OPERATIONS */
 
@@ -542,7 +548,7 @@ stm_wbetl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_w
 
   /* Try to acquire lock */
  restart:
-  l = ATOMIC_LOAD_ACQ(lock);
+  l = LOCK_READ_ACQ(lock);
  restart_no_load:
   if (unlikely(LOCK_GET_OWNED(l))) {
     /* Locked */
@@ -562,7 +568,7 @@ stm_wbetl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_w
 #ifdef TRANSACTION_OPERATIONS
       /* If read-locked: upgrade lock */
       if (!LOCK_GET_WRITE(l)) {
-        if (ATOMIC_CAS_FULL(lock, l, LOCK_UPGRADE(l)) == 0) {
+        if (LOCK_WRITE_CAS(lock, l, LOCK_UPGRADE(l)) == 0) {
           /* Lock must have been stolen: abort */
           stm_rollback(tx, STM_ABORT_KILLED);
           return NULL;
@@ -616,7 +622,7 @@ stm_wbetl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_w
 #endif /* IRREVOCABLE_ENABLED */
 #ifdef TRANSACTION_OPERATIONS
     t = w->tx->status;
-    l2 = ATOMIC_LOAD_ACQ(lock);
+    l2 = LOCK_READ_ACQ(lock);
     if (l != l2) {
       l = l2;
       goto restart_no_load;
@@ -702,7 +708,7 @@ stm_wbetl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_w
     stm_rollback(tx, STM_ABORT_EXTEND_WS);
   w = &tx->w_set.entries[tx->w_set.nb_entries];
   w->version = version;
-  if (unlikely(ATOMIC_CAS_FULL(lock, l, LOCK_SET_ADDR_WRITE((stm_word_t)w)) == 0))
+  if (unlikely(LOCK_WRITE_CAS(lock, l, LOCK_SET_ADDR_WRITE((stm_word_t)w)) == 0))
     goto restart;
   /* We own the lock here (ETL) */
 do_write:
@@ -743,10 +749,14 @@ stm_wbetl_RaR(stm_tx_t *tx, volatile stm_word_t *addr)
 static INLINE stm_word_t
 stm_wbetl_RaW(stm_tx_t *tx, volatile stm_word_t *addr)
 {
-  stm_word_t l;
+  const stm_lock_t *lock;
+  stm_version_t l;
   w_entry_t *w;
 
-  l = ATOMIC_LOAD_ACQ(GET_LOCK(addr));
+  /* Get reference to lock */
+  lock = GET_LOCK(addr);
+
+  l = LOCK_READ_ACQ(lock);
   /* Does the lock owned? */
   assert(LOCK_GET_WRITE(l));
   /* Do we own the lock? */
@@ -777,10 +787,13 @@ stm_wbetl_WaR(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_wor
 static INLINE void
 stm_wbetl_WaW(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_word_t mask)
 {
-  stm_word_t l;
+  const stm_lock_t *lock;
+  stm_version_t l;
   w_entry_t *w;
 
-  l = ATOMIC_LOAD_ACQ(GET_LOCK(addr));
+  /* Get reference to lock */
+  lock = GET_LOCK(addr);
+  l = LOCK_READ_ACQ(lock);
   /* Does the lock owned? */
   assert(LOCK_GET_WRITE(l));
   /* Do we own the lock? */
@@ -810,7 +823,7 @@ static INLINE int
 stm_wbetl_commit(stm_tx_t *tx)
 {
   w_entry_t *w;
-  stm_word_t t;
+  stm_version_t t;
   int i;
 
   PRINT_DEBUG("==> stm_wbetl_commit(%p[%lu-%lu])\n", tx, (unsigned long)tx->start, (unsigned long)tx->end);
@@ -822,7 +835,7 @@ stm_wbetl_commit(stm_tx_t *tx)
     for (i = tx->w_set.nb_entries; i > 0; i--, w++) {
       /* Only drop lock for last covered address in write set */
       if (w->next == NULL)
-        ATOMIC_STORE_REL(w->lock, LOCK_SET_TIMESTAMP(w->version));
+        LOCK_WRITE_REL(w->lock, LOCK_SET_TIMESTAMP(w->version));
     }
     /* Update clock so that future transactions get higher timestamp (liveness of timestamp CM) */
     FETCH_INC_CLOCK;
@@ -883,9 +896,9 @@ stm_wbetl_commit(stm_tx_t *tx)
     if (w->next == NULL) {
       /* In case of visible read, reset lock to its previous timestamp */
       if (w->mask == 0)
-        ATOMIC_STORE_REL(w->lock, LOCK_SET_TIMESTAMP(w->version));
+        LOCK_WRITE_REL(w->lock, LOCK_SET_TIMESTAMP(w->version));
       else
-        ATOMIC_STORE_REL(w->lock, LOCK_SET_TIMESTAMP(t));
+        LOCK_WRITE_REL(w->lock, LOCK_SET_TIMESTAMP(t));
     }
   }
 

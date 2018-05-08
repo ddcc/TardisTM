@@ -31,7 +31,7 @@ stm_wt_validate(stm_tx_t *tx)
 {
   r_entry_t *r;
   int i;
-  stm_word_t l;
+  stm_version_t l;
 
   PRINT_DEBUG("==> stm_wt_validate(%p[%lu-%lu])\n", tx, (unsigned long)tx->start, (unsigned long)tx->end);
 
@@ -39,7 +39,7 @@ stm_wt_validate(stm_tx_t *tx)
   r = tx->r_set.entries;
   for (i = tx->r_set.nb_entries; i > 0; i--, r++) {
     /* Read lock */
-    l = ATOMIC_LOAD(r->lock);
+    l = LOCK_READ(r->lock);
     /* Unlocked and still the same version? */
     if (LOCK_GET_OWNED(l)) {
       /* Do we own the lock? */
@@ -86,7 +86,7 @@ stm_wt_validate(stm_tx_t *tx)
 static INLINE int
 stm_wt_extend(stm_tx_t *tx)
 {
-  stm_word_t now;
+  stm_version_t now;
 
   PRINT_DEBUG("==> stm_wt_extend(%p[%lu-%lu])\n", tx, (unsigned long)tx->start, (unsigned long)tx->end);
 
@@ -114,7 +114,7 @@ stm_wt_rollback(stm_tx_t *tx)
 {
   int i;
   w_entry_t *w;
-  stm_word_t t;
+  stm_version_t t;
 
   PRINT_DEBUG("==> stm_wt_rollback(%p[%lu-%lu])\n", tx, (unsigned long)tx->start, (unsigned long)tx->end);
 
@@ -138,10 +138,10 @@ stm_wt_rollback(stm_tx_t *tx)
         /* Get new version (may exceed VERSION_MAX by up to MAX_THREADS) */
         t = FETCH_INC_CLOCK + 1;
       }
-      ATOMIC_STORE_REL(w->lock, LOCK_SET_TIMESTAMP(t));
+      LOCK_WRITE_REL(w->lock, LOCK_SET_TIMESTAMP(t));
     } else {
       /* Use new incarnation number */
-      ATOMIC_STORE_REL(w->lock, LOCK_UPD_INCARNATION(w->version, j));
+      LOCK_WRITE_REL(w->lock, LOCK_UPD_INCARNATION(w->version, j));
     }
   }
   /* Make sure that all lock releases become visible */
@@ -151,8 +151,10 @@ stm_wt_rollback(stm_tx_t *tx)
 static INLINE stm_word_t
 stm_wt_read(stm_tx_t *tx, volatile stm_word_t *addr)
 {
-  volatile stm_word_t *lock;
-  stm_word_t l, l2, value, version;
+  const stm_lock_t *lock;
+  stm_version_t l, l2;
+  stm_word_t value;
+  stm_version_t version;
   w_entry_t *w;
 
   PRINT_DEBUG2("==> stm_wt_read(t=%p[%lu-%lu],a=%p)\n", tx, (unsigned long)tx->start, (unsigned long)tx->end, addr);
@@ -166,12 +168,12 @@ stm_wt_read(stm_tx_t *tx, volatile stm_word_t *addr)
 
   /* Read lock, value, lock */
  restart:
-  l = ATOMIC_LOAD_ACQ(lock);
+  l = LOCK_READ_ACQ(lock);
  restart_no_load:
   if (likely(!LOCK_GET_WRITE(l))) {
     /* Not locked */
     value = ATOMIC_LOAD_ACQ(addr);
-    l2 = ATOMIC_LOAD_ACQ(lock);
+    l2 = LOCK_READ_ACQ(lock);
     if (l != l2) {
       l = l2;
       goto restart_no_load;
@@ -266,8 +268,9 @@ stm_wt_read(stm_tx_t *tx, volatile stm_word_t *addr)
 static INLINE w_entry_t *
 stm_wt_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_word_t mask)
 {
-  volatile stm_word_t *lock;
-  stm_word_t l, version;
+  const stm_lock_t *lock;
+  stm_version_t l;
+  stm_version_t version;
   r_entry_t *r;
   w_entry_t *w, *prev = NULL;
 
@@ -279,7 +282,7 @@ stm_wt_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_word
 
   /* Try to acquire lock */
  restart:
-  l = ATOMIC_LOAD_ACQ(lock);
+  l = LOCK_READ_ACQ(lock);
  restart_no_load:
   if (LOCK_GET_OWNED(l)) {
     /* Locked */
@@ -402,7 +405,7 @@ stm_wt_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_word
   if (tx->w_set.nb_entries == tx->w_set.size)
     stm_rollback(tx, STM_ABORT_EXTEND_WS);
   w = &tx->w_set.entries[tx->w_set.nb_entries];
-  if (ATOMIC_CAS_FULL(lock, l, LOCK_SET_ADDR_WRITE((stm_word_t)w)) == 0)
+  if (LOCK_WRITE_CAS(lock, l, LOCK_SET_ADDR_WRITE((stm_word_t)w)) == 0)
     goto restart;
   /* We store the old value of the lock (timestamp and incarnation) */
   w->version = l;
@@ -447,9 +450,13 @@ static INLINE stm_word_t
 stm_wt_RaW(stm_tx_t *tx, volatile stm_word_t *addr)
 {
 #ifndef NDEBUG
-  stm_word_t l;
+  const stm_lock_t *lock;
+  stm_version_t l;
   w_entry_t *w;
-  l = ATOMIC_LOAD_ACQ(GET_LOCK(addr));
+
+  /* Get reference to lock */
+  lock = GET_LOCK(addr);
+  l = LOCK_READ_ACQ(lock);
   /* Does the lock owned? */
   assert(LOCK_GET_WRITE(l));
   /* Do we own the lock? */
@@ -481,9 +488,13 @@ static INLINE void
 stm_wt_WaW(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_word_t mask)
 {
 #ifndef NDEBUG
-  stm_word_t l;
+  const stm_lock_t *lock;
+  stm_version_t l;
   w_entry_t *w;
-  l = ATOMIC_LOAD_ACQ(GET_LOCK(addr));
+
+  /* Get reference to lock */
+  lock = GET_LOCK(addr);
+  l = LOCK_READ_ACQ(lock);
   /* Does the lock owned? */
   assert(LOCK_GET_WRITE(l));
   /* Do we own the lock? */
@@ -502,7 +513,7 @@ static INLINE int
 stm_wt_commit(stm_tx_t *tx)
 {
   w_entry_t *w;
-  stm_word_t t;
+  stm_version_t t;
   int i;
 
   PRINT_DEBUG("==> stm_wt_commit(%p[%lu-%lu])\n", tx, (unsigned long)tx->start, (unsigned long)tx->end);
@@ -556,7 +567,7 @@ stm_wt_commit(stm_tx_t *tx)
   for (i = tx->w_set.nb_entries; i > 0; i--, w++) {
     if (w->next == NULL) {
       /* No need for CAS (can only be modified by owner transaction) */
-      ATOMIC_STORE(w->lock, LOCK_SET_TIMESTAMP(t));
+      LOCK_WRITE(w->lock, LOCK_SET_TIMESTAMP(t));
     }
   }
   /* Make sure that all lock releases become visible */

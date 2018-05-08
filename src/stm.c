@@ -237,7 +237,7 @@ stm_init(void)
 #endif /* DESIGN == WRITE_BACK_ETL_VR */
 
   /* Set locks and clock but should be already to 0 */
-  memset((void *)_tinystm.locks, 0, LOCK_ARRAY_SIZE * sizeof(stm_word_t));
+  memset((void *)_tinystm.locks, 0, LOCK_ARRAY_SIZE * sizeof(*_tinystm.locks));
   CLOCK = 0;
 
   stm_quiesce_init();
@@ -695,8 +695,9 @@ _CALLCONV stm_word_t
 stm_unit_load(volatile stm_word_t *addr, stm_word_t *timestamp)
 {
 #ifdef UNIT_TX
-  volatile stm_word_t *lock;
-  stm_word_t l, l2, value;
+  stm_lock_t *lock;
+  stm_version_t l, l2;
+  stm_word_t value;
 
   PRINT_DEBUG2("==> stm_unit_load(a=%p)\n", addr);
 
@@ -705,7 +706,7 @@ stm_unit_load(volatile stm_word_t *addr, stm_word_t *timestamp)
 
   /* Read lock, value, lock */
  restart:
-  l = ATOMIC_LOAD_ACQ(lock);
+  l = LOCK_READ_ACQ(lock);
  restart_no_load:
   if (LOCK_GET_OWNED(l)) {
     /* Locked: wait until lock is free */
@@ -716,7 +717,7 @@ stm_unit_load(volatile stm_word_t *addr, stm_word_t *timestamp)
   }
   /* Not locked */
   value = ATOMIC_LOAD_ACQ(addr);
-  l2 = ATOMIC_LOAD_ACQ(lock);
+  l2 = LOCK_READ_ACQ(lock);
   if (l != l2) {
     l = l2;
     goto restart_no_load;
@@ -740,8 +741,8 @@ static INLINE int
 stm_unit_write(volatile stm_word_t *addr, stm_word_t value, stm_word_t mask, stm_word_t *timestamp)
 {
 #ifdef UNIT_TX
-  volatile stm_word_t *lock;
-  stm_word_t l;
+  stm_lock_t *lock;
+  stm_version_t l;
 
   PRINT_DEBUG2("==> stm_unit_write(a=%p,d=%p-%lu,m=0x%lx)\n",
                addr, (void *)value, (unsigned long)value, (unsigned long)mask);
@@ -751,7 +752,7 @@ stm_unit_write(volatile stm_word_t *addr, stm_word_t value, stm_word_t mask, stm
 
   /* Try to acquire lock */
  restart:
-  l = ATOMIC_LOAD_ACQ(lock);
+  l = LOCK_READ_ACQ(lock);
   if (LOCK_GET_OWNED(l)) {
     /* Locked: wait until lock is free */
 #ifdef WAIT_YIELD
@@ -766,7 +767,7 @@ stm_unit_write(volatile stm_word_t *addr, stm_word_t value, stm_word_t mask, stm
     return 0;
   }
   /* TODO: would need to store thread ID to be able to kill it (for wait freedom) */
-  if (ATOMIC_CAS_FULL(lock, l, LOCK_UNIT) == 0)
+  if (LOCK_WRITE_CAS(lock, l, LOCK_UNIT) == 0)
     goto restart;
   ATOMIC_STORE(addr, value);
   /* Update timestamp with newer value (may exceed VERSION_MAX by up to MAX_THREADS) */
@@ -774,7 +775,7 @@ stm_unit_write(volatile stm_word_t *addr, stm_word_t value, stm_word_t mask, stm
   if (timestamp != NULL)
     *timestamp = l;
   /* Make sure that lock release becomes visible */
-  ATOMIC_STORE_REL(lock, LOCK_SET_TIMESTAMP(l));
+  LOCK_STORE_REL(lock, LOCK_SET_TIMESTAMP(l));
   if (unlikely(l >= VERSION_MAX)) {
     /* Block all transactions and reset clock (current thread is not in active transaction) */
     stm_quiesce_barrier(NULL, rollover_clock, NULL);

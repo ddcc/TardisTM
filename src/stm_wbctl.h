@@ -31,7 +31,7 @@ stm_wbctl_validate(stm_tx_t *tx)
 {
   r_entry_t *r;
   int i;
-  stm_word_t l;
+  stm_version_t l;
 
   PRINT_DEBUG("==> stm_wbctl_validate(%p[%lu-%lu])\n", tx, (unsigned long)tx->start, (unsigned long)tx->end);
 
@@ -39,7 +39,8 @@ stm_wbctl_validate(stm_tx_t *tx)
   r = tx->r_set.entries;
   for (i = tx->r_set.nb_entries; i > 0; i--, r++) {
     /* Read lock */
-    l = ATOMIC_LOAD(r->lock);
+    l = LOCK_READ(r->lock);
+restart_no_load:
     /* Unlocked and still the same version? */
     if (LOCK_GET_OWNED(l)) {
       /* Do we own the lock? */
@@ -96,7 +97,7 @@ stm_wbctl_validate(stm_tx_t *tx)
 static INLINE int
 stm_wbctl_extend(stm_tx_t *tx)
 {
-  stm_word_t now;
+  stm_version_t now;
 
   PRINT_DEBUG("==> stm_wbctl_extend(%p[%lu-%lu])\n", tx, (unsigned long)tx->start, (unsigned long)tx->end);
 
@@ -127,28 +128,29 @@ stm_wbctl_rollback(stm_tx_t *tx)
   PRINT_DEBUG("==> stm_wbctl_rollback(%p[%lu-%lu])\n", tx, (unsigned long)tx->start, (unsigned long)tx->end);
 
   assert(IS_ACTIVE(tx->status));
+  assert(tx->w_set.nb_entries >= tx->w_set.nb_acquired);
 
-  if (tx->w_set.nb_acquired > 0) {
-    w = tx->w_set.entries + tx->w_set.nb_entries;
-    do {
-      w--;
-      if (!w->no_drop) {
-        if (--tx->w_set.nb_acquired == 0) {
-          /* Make sure that all lock releases become visible to other threads */
-          ATOMIC_STORE_REL(w->lock, LOCK_SET_TIMESTAMP(w->version));
-        } else {
-          ATOMIC_STORE(w->lock, LOCK_SET_TIMESTAMP(w->version));
-        }
+  for (w = tx->w_set.entries + tx->w_set.nb_entries - 1; tx->w_set.nb_acquired > 0; --w) {
+    assert(w >= tx->w_set.entries && w < tx->w_set.entries + tx->w_set.nb_entries);
+    if (!w->no_drop) {
+      assert(tx->w_set.nb_acquired > 0 && tx->w_set.nb_entries >= tx->w_set.nb_acquired);
+      if (--tx->w_set.nb_acquired == 0) {
+        /* Make sure that all lock releases become visible to other threads */
+        LOCK_WRITE_REL(w->lock, LOCK_SET_TIMESTAMP(w->version));
+      } else {
+        LOCK_WRITE(w->lock, LOCK_SET_TIMESTAMP(w->version));
       }
-    } while (tx->w_set.nb_acquired > 0);
+    }
   }
 }
 
 static INLINE stm_word_t
 stm_wbctl_read(stm_tx_t *tx, volatile stm_word_t *addr)
 {
-  volatile stm_word_t *lock;
-  stm_word_t l, l2, value, version;
+  const stm_lock_t *lock;
+  stm_version_t l, l2;
+  stm_word_t value;
+  stm_version_t version;
   r_entry_t *r;
   w_entry_t *w;
 
@@ -174,7 +176,7 @@ stm_wbctl_read(stm_tx_t *tx, volatile stm_word_t *addr)
 
   /* Read lock, value, lock */
  restart:
-  l = ATOMIC_LOAD_ACQ(lock);
+  l = LOCK_READ_ACQ(lock);
  restart_no_load:
   if (LOCK_GET_WRITE(l)) {
     /* Locked */
@@ -192,7 +194,7 @@ stm_wbctl_read(stm_tx_t *tx, volatile stm_word_t *addr)
 #endif /* IRREVOCABLE_ENABLED */
     /* Check timestamp */
     version = LOCK_GET_TIMESTAMP(l);
-    l2 = ATOMIC_LOAD_ACQ(lock);
+    l2 = LOCK_READ_ACQ(lock);
     if (l != l2) {
       l = l2;
       goto restart_no_load;
@@ -210,7 +212,7 @@ stm_wbctl_read(stm_tx_t *tx, volatile stm_word_t *addr)
     /* Verify that version has not been overwritten (read value has not
      * yet been added to read set and may have not been checked during
      * extend) */
-    l2 = ATOMIC_LOAD_ACQ(lock);
+    l2 = LOCK_READ_ACQ(lock);
     if (l != l2) {
       l = l2;
       goto restart_no_load;
@@ -235,8 +237,9 @@ stm_wbctl_read(stm_tx_t *tx, volatile stm_word_t *addr)
 static INLINE w_entry_t *
 stm_wbctl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_word_t mask)
 {
-  volatile stm_word_t *lock;
-  stm_word_t l, version;
+  const stm_lock_t *lock;
+  stm_version_t l;
+  stm_version_t version;
   r_entry_t *r;
   w_entry_t *w;
 
@@ -248,7 +251,7 @@ stm_wbctl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_w
 
   /* Try to acquire lock */
  restart:
-  l = ATOMIC_LOAD_ACQ(lock);
+  l = LOCK_READ_ACQ(lock);
  restart_no_load:
   if (LOCK_GET_OWNED(l)) {
     /* Locked */
@@ -368,16 +371,16 @@ static INLINE int
 stm_wbctl_commit(stm_tx_t *tx)
 {
   w_entry_t *w;
-  stm_word_t t;
-  stm_word_t l, value;
+  stm_version_t l;
+  stm_word_t value;
 
   PRINT_DEBUG("==> stm_wbctl_commit(%p[%lu-%lu])\n", tx, (unsigned long)tx->start, (unsigned long)tx->end);
 
   /* Acquire locks (in reverse order) */
   for (w = tx->w_set.entries + tx->w_set.nb_entries - 1; w >= tx->w_set.entries; --w) {
     /* Try to acquire lock */
- restart:
-    l = ATOMIC_LOAD(w->lock);
+restart:
+    l = LOCK_READ(w->lock);
     if (LOCK_GET_OWNED(l)) {
       /* Do we already own the lock? */
       if (tx->w_set.entries <= (w_entry_t *)LOCK_GET_ADDR(l) && (w_entry_t *)LOCK_GET_ADDR(l) < tx->w_set.entries + tx->w_set.nb_entries) {
@@ -410,7 +413,7 @@ stm_wbctl_commit(stm_tx_t *tx)
       stm_rollback(tx, STM_ABORT_WW_CONFLICT);
       return 0;
     }
-    if (ATOMIC_CAS_FULL(w->lock, l, LOCK_SET_ADDR_WRITE((stm_word_t)w)) == 0)
+    if (LOCK_WRITE_CAS(w->lock, l, LOCK_SET_ADDR_WRITE((stm_word_t)w)) == 0)
       goto restart;
     /* We own the lock here */
     w->no_drop = 0;
@@ -425,13 +428,13 @@ stm_wbctl_commit(stm_tx_t *tx)
   /* FIXME: it is bogus. the status should be changed to idle otherwise stm_quiesce will not progress */
   if (unlikely(!tx->irrevocable)) {
     do {
-      t = ATOMIC_LOAD(&_tinystm.irrevocable);
+      l = ATOMIC_LOAD(&_tinystm.irrevocable);
       /* If the irrevocable transaction have encountered an acquired lock, abort */
-      if (t == 2) {
+      if (l == 2) {
         stm_rollback(tx, STM_ABORT_IRREVOCABLE);
         return 0;
       }
-    } while (t);
+    } while (l);
   }
 # else /* ! IRREVOCABLE_IMPROVED */
   if (!tx->irrevocable && ATOMIC_LOAD(&_tinystm.irrevocable)) {
@@ -442,7 +445,7 @@ stm_wbctl_commit(stm_tx_t *tx)
 #endif /* IRREVOCABLE_ENABLED */
 
   /* Get commit timestamp (may exceed VERSION_MAX by up to MAX_THREADS) */
-  t = FETCH_INC_CLOCK + 1;
+  l = FETCH_INC_CLOCK + 1;
 
 #ifdef IRREVOCABLE_ENABLED
   if (unlikely(tx->irrevocable))
@@ -450,7 +453,7 @@ stm_wbctl_commit(stm_tx_t *tx)
 #endif /* IRREVOCABLE_ENABLED */
 
   /* Try to validate (only if a concurrent transaction has committed since tx->end) */
-  if (unlikely(tx->end != t - 1 && !stm_wbctl_validate(tx))) {
+  if (unlikely(tx->end != l - 1 && !stm_wbctl_validate(tx))) {
     /* Cannot commit */
     stm_rollback(tx, STM_ABORT_VAL_COMMIT);
     return 0;
@@ -470,7 +473,7 @@ stm_wbctl_commit(stm_tx_t *tx)
     }
     /* Only drop lock for last covered address in write set (cannot be "no drop") */
     if (!w->no_drop)
-      ATOMIC_STORE_REL(w->lock, LOCK_SET_TIMESTAMP(t));
+      LOCK_WRITE_REL(w->lock, LOCK_SET_TIMESTAMP(l));
   }
 
  end:
