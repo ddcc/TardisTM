@@ -63,16 +63,3 @@ endif
 endif
 endif
 endif
-
-########################################################################
-# libatomic_ops path
-# LIBAO_HOME must be set to the path of libatomic_ops
-# (use the embedded light libatomic_ops if LIBAO_HOME is not defined)
-########################################################################
-ifndef LIBAO_HOME
-  LIBAO_HOME = $(SRCDIR)/atomic_ops
-  LIBAO_INC = $(LIBAO_HOME)
-else
-  LIBAO_INC = $(LIBAO_HOME)/include
-endif
-CPPFLAGS += -I$(LIBAO_INC)
