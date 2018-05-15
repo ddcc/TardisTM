@@ -10,7 +10,7 @@ include $(ROOT)/Makefile.common
 ##############################################################################
 
 #TODO test if function are inline or need a specific header to force inlining
-#TODO Flags may changed. I must find a way to keep up to date with current tiny. 
+#TODO Flags may changed. I must find a way to keep up to date with current tiny.
 
 # DEFINES += -DDESIGN=WRITE_BACK_ETL
 # DEFINES += -DDESIGN=WRITE_BACK_CTL
@@ -21,8 +21,8 @@ DEFINES += -DCM=CM_SUICIDE
 # DEFINES += -DCM=CM_BACKOFF
 # DEFINES += -DCM=CM_MODULAR
 
-#DEFINES += -DEPOCH_GC
-DEFINES += -UEPOCH_GC
+#DEFINES += -DMEMORY_MANAGEMENT=MM_EPOCH_GC
+DEFINES += -DMEMORY_MANAGEMENT=MM_NONE
 # DEFINES += -DREAD_LOCKED_DATA
 
 #DEFINES += -DLOCK_SHIFT_EXTRA=0
@@ -35,7 +35,7 @@ DEFINES += -UTM_STATISTICS2
 DEFINES += -DIRREVOCABLE_ENABLED
 # DEFINES += -UIRREVOCABLE_ENABLED
 
-# Add wrapper for pthread function 
+# Add wrapper for pthread function
 # DEFINES += -DPTHREAD_WRAPPER
 DEFINES += -UPTHREAD_WRAPPER
 # TODO if THREAD_WRAPPER is defined, library must be linked with -ldl
@@ -49,7 +49,7 @@ DEFINES += -DTLS_COMPILER
 # TODO Use libtool to generate libraries
 # libtool --mode=compile
 # libtool --mode=link
-# libtool --mode=install 
+# libtool --mode=install
 
 # NOTES
 # Use explicit parameters for Tanger and Intel STM Compiler
@@ -57,7 +57,7 @@ DEFINES += -DTLS_COMPILER
 # TODO make it MacOS compatible
 
 # Remove the -DEXPLICIT_TX_PARAMETER flag if defined
-# Manage it accordingly to the required library 
+# Manage it accordingly to the required library
 # TODO is it useful?
 DEF_ABI = $(subst -DEXPLICIT_TX_PARAMETER,,$(DEFINES))
 

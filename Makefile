@@ -128,20 +128,24 @@ DEFINES += -UWAIT_YIELD
 DEFINES += -UUSE_BLOOM_FILTER
 
 ########################################################################
-# Use an epoch-based memory allocator and garbage collector to ensure
-# that accesses to the dynamic memory allocated by a transaction from
-# another transaction are valid.  There is a slight overhead from
-# enabling this feature.
+# Several memory management modes are available:
+#
+# MM_NONE: Use the regular system memory allocator, which is not safe
+#   for dynamic memory that is allocated or freed within transactions.
+# MM_EPOCH_GC: Use an epoch-based memory allocator and garbage collector
+#   to ensure that accesses to the dynamic memory allocated by a
+#   transaction from another transaction are valid.  There is a slight
+#   overhead from enabling this feature.
 ########################################################################
 
-# DEFINES += -DEPOCH_GC
-DEFINES += -UEPOCH_GC
+DEFINES += -DMEMORY_MANAGEMENT=MM_NONE
+# DEFINES += -DMEMORY_MANAGEMENT=MM_EPOCH_GC
 
 ########################################################################
 # Keep track of conflicts between transactions and notifies the
 # application (using a callback), passing the identity of the two
 # conflicting transaction and the associated threads.  This feature
-# requires EPOCH_GC.
+# requires MM_EPOCH_GC.
 ########################################################################
 
 # DEFINES += -DCONFLICT_TRACKING
@@ -262,8 +266,11 @@ D := $(D:CM_DELAY=1)
 D := $(D:CM_BACKOFF=2)
 D := $(D:CM_MODULAR=3)
 D += -DCM_SUICIDE=0 -DCM_DELAY=1 -DCM_BACKOFF=2 -DCM_MODULAR=3
+D := $(D:MM_NONE=0)
+D := $(D:MM_EPOCH_GC=1)
+D += -DMM_NONE=0 -DMM_EPOCH_GC=1
 
-ifneq (,$(findstring -DEPOCH_GC,$(DEFINES)))
+ifeq (,$(findstring -DMEMORY_MANAGEMENT=MM_NONE,$(DEFINES)))
   GC := $(SRCDIR)/gc.o
 else
   GC :=

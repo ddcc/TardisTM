@@ -252,9 +252,9 @@ stm_init(void)
   COMPILE_TIME_ASSERT(sizeof(stm_word_t) == sizeof(void *));
   COMPILE_TIME_ASSERT(sizeof(stm_word_t) == sizeof(atomic_t));
 
-#ifdef EPOCH_GC
+#if MEMORY_MANAGEMENT != MM_NONE
   gc_init(stm_get_clock);
-#endif /* EPOCH_GC */
+#endif /* MEMORY_MANAGEMENT != MM_NONE */
 
 #if CM == CM_MODULAR
   s = getenv(VR_THRESHOLD);
@@ -302,9 +302,9 @@ stm_exit(void)
   tls_exit();
   stm_quiesce_exit();
 
-#ifdef EPOCH_GC
+#if MEMORY_MANAGEMENT != MM_NONE
   gc_exit();
-#endif /* EPOCH_GC */
+#endif /* MEMORY_MANAGEMENT != MM_NONE */
 
   _tinystm.initialized = 0;
 }

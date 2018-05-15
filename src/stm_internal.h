@@ -58,25 +58,33 @@
 # define CM                             CM_SUICIDE
 #endif /* ! CM */
 
+/* Memory management */
+#define MM_NONE                         0
+#define MM_EPOCH_GC                     1
+
+#ifndef MEMORY_MANAGEMENT
+# define MEMORY_MANAGEMENT              MM_NONE
+#endif /* ! MEMORY_MANAGEMENT */
+
 #if DESIGN != WRITE_BACK_ETL && CM == CM_MODULAR
 # error "MODULAR contention manager can only be used with WB-ETL design"
 #endif /* DESIGN != WRITE_BACK_ETL && CM == CM_MODULAR */
 
-#if defined(CONFLICT_TRACKING) && ! defined(EPOCH_GC)
-# error "CONFLICT_TRACKING requires EPOCH_GC"
-#endif /* defined(CONFLICT_TRACKING) && ! defined(EPOCH_GC) */
+#if defined(CONFLICT_TRACKING) && MEMORY_MANAGEMENT == MM_NONE
+# error "CONFLICT_TRACKING requires MEMORY_MANAGEMENT != MM_NONE"
+#endif /* defined(CONFLICT_TRACKING) && MEMORY_MANAGEMENT == MM_NONE */
 
-#if CM == CM_MODULAR && ! defined(EPOCH_GC)
-# error "MODULAR contention manager requires EPOCH_GC"
-#endif /* CM == CM_MODULAR && ! defined(EPOCH_GC) */
+#if CM == CM_MODULAR && MEMORY_MANAGEMENT == MM_NONE
+# error "MODULAR contention manager requires MEMORY_MANAGEMENT != MM_NONE"
+#endif /* CM == CM_MODULAR && MEMORY_MANAGEMENT == MM_NONE */
 
 #if defined(READ_LOCKED_DATA) && CM != CM_MODULAR
 # error "READ_LOCKED_DATA can only be used with MODULAR contention manager"
 #endif /* defined(READ_LOCKED_DATA) && CM != CM_MODULAR */
 
-#if defined(EPOCH_GC) && defined(SIGNAL_HANDLER)
-# error "SIGNAL_HANDLER can only be used without EPOCH_GC"
-#endif /* defined(EPOCH_GC) && defined(SIGNAL_HANDLER) */
+#if MEMORY_MANAGEMENT != MM_NONE && defined(SIGNAL_HANDLER)
+# error "SIGNAL_HANDLER can only be used with MEMORY_MANAGEMENT == MM_NONE"
+#endif /* MEMORY_MANAGEMENT != MM_NONE && defined(SIGNAL_HANDLER) */
 
 #define TX_GET                          stm_tx_t *tx = tls_get_tx()
 
@@ -671,10 +679,10 @@ rollover_clock(void *arg)
   CLOCK = 0;
   /* Reset timestamps */
   memset((void *)_tinystm.locks, 0, LOCK_ARRAY_SIZE * sizeof(stm_word_t));
-# ifdef EPOCH_GC
+#if MEMORY_MANAGEMENT != MM_NONE
   /* Reset GC */
   gc_reset();
-# endif /* EPOCH_GC */
+#endif /* MEMORY_MANAGEMENT */
 }
 
 /*
@@ -760,9 +768,9 @@ stm_allocate_ws_entries(stm_tx_t *tx, int extend)
 #if CM == CM_MODULAR || defined(CONFLICT_TRACKING)
   int i, first = (extend ? tx->w_set.size : 0);
 #endif /* CM == CM_MODULAR || defined(CONFLICT_TRACKING) */
-#ifdef EPOCH_GC
+#if MEMORY_MANAGEMENT != MM_NONE
   void *a;
-#endif /* ! EPOCH_GC */
+#endif /* MEMORY_MANAGEMENT */
 
   PRINT_DEBUG("==> stm_allocate_ws_entries(%p[%lu-%lu],%d)\n", tx, (unsigned long)tx->start, (unsigned long)tx->end, extend);
 
@@ -770,14 +778,14 @@ stm_allocate_ws_entries(stm_tx_t *tx, int extend)
     /* Extend write set */
     /* Transaction must be inactive for WRITE_THROUGH or WRITE_BACK_ETL */
     tx->w_set.size *= 2;
-#ifdef EPOCH_GC
+#if MEMORY_MANAGEMENT != MM_NONE
     a = tx->w_set.entries;
     tx->w_set.entries = (w_entry_t *)xmalloc_aligned(tx->w_set.size * sizeof(w_entry_t));
     memcpy(tx->w_set.entries, a, tx->w_set.size / 2 * sizeof(w_entry_t));
     gc_free(a, GET_CLOCK);
-#else /* ! EPOCH_GC */
+#else /* MEMORY_MANAGEMENT = MM_NONE */
     tx->w_set.entries = (w_entry_t *)xrealloc(tx->w_set.entries, tx->w_set.size * sizeof(w_entry_t));
-#endif /* ! EPOCH_GC */
+#endif /* MEMORY_MANAGEMENT */
   } else {
     /* Allocate write set */
     tx->w_set.entries = (w_entry_t *)xmalloc_aligned(tx->w_set.size * sizeof(w_entry_t));
@@ -922,9 +930,9 @@ int_stm_prepare(stm_tx_t *tx)
     tx->timestamp = tx->start;
 #endif /* CM == CM_MODULAR */
 
-#ifdef EPOCH_GC
+#if MEMORY_MANAGEMENT != MM_NONE
   gc_set_epoch(tx->start);
-#endif /* EPOCH_GC */
+#endif /* MEMORY_MANAGEMENT */
 
 #ifdef IRREVOCABLE_ENABLED
   if (unlikely(tx->irrevocable != 0)) {
@@ -1198,9 +1206,9 @@ int_stm_init_thread(void)
   if ((tx = tls_get_tx()) != NULL)
     return tx;
 
-#ifdef EPOCH_GC
+#if MEMORY_MANAGEMENT != MM_NONE
   gc_init_thread();
-#endif /* EPOCH_GC */
+#endif /* MEMORY_MANAGEMENT */
 
   /* Allocate descriptor */
   tx = (stm_tx_t *)xmalloc_aligned(sizeof(stm_tx_t));
@@ -1281,9 +1289,9 @@ int_stm_init_thread(void)
 static INLINE void
 int_stm_exit_thread(stm_tx_t *tx)
 {
-#ifdef EPOCH_GC
+#if MEMORY_MANAGEMENT != MM_NONE
   stm_word_t t;
-#endif /* EPOCH_GC */
+#endif /* MEMORY_MANAGEMENT */
 
   PRINT_DEBUG("==> stm_exit_thread(%p[%lu-%lu])\n", tx, (unsigned long)tx->start, (unsigned long)tx->end);
 
@@ -1310,17 +1318,17 @@ int_stm_exit_thread(stm_tx_t *tx)
 
   stm_quiesce_exit_thread(tx);
 
-#ifdef EPOCH_GC
+#if MEMORY_MANAGEMENT != MM_NONE
   t = GET_CLOCK;
   gc_free(tx->r_set.entries, t);
   gc_free(tx->w_set.entries, t);
   gc_free(tx, t);
   gc_exit_thread();
-#else /* ! EPOCH_GC */
+#else /* MEMORY_MANAGEMENT == MM_NONE */
   xfree(tx->r_set.entries);
   xfree(tx->w_set.entries);
   xfree(tx);
-#endif /* ! EPOCH_GC */
+#endif /* MEMORY_MANAGEMENT */
 
   tls_set_tx(NULL);
 }

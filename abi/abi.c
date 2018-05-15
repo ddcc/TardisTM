@@ -59,13 +59,13 @@
 extern void _ITM_CALL_CONVENTION _ITM_siglongjmp(int val, sigjmp_buf env) __attribute__ ((noreturn));
 
 #include "stm.c"
-#include "mod_cb_mem.c"
+#include "mod_mem.c"
 #ifdef TM_GCC
 # include "gcc/alloc_cpp.c"
 #endif
 #include "mod_log.c"
 #include "wrappers.c"
-#ifdef EPOCH_GC
+#if MEMORY_MANAGEMENT != MM_NONE
 # include "gc.c"
 #endif
 
@@ -154,29 +154,29 @@ static int get_stack_attr(void *low, void *high)
   return 0;
 }
 /* Hints for other platforms
-#if PLATFORM(DARWIN) 
-pthread_get_stackaddr_np(pthread_self()); 
+#if PLATFORM(DARWIN)
+pthread_get_stackaddr_np(pthread_self());
 #endif
-#elif PLATFORM(WIN_OS) && PLATFORM(X86) && COMPILER(MSVC) 
-// offset 0x18 from the FS segment register gives a pointer to 
-// the thread information block for the current thread 
-NT_TIB* pTib; 
-__asm { 
-MOV EAX, FS:[18h] 
-MOV pTib, EAX 
-} 
-return (void*)pTib->StackBase; 
-#elif PLATFORM(WIN_OS) && PLATFORM(X86_64) && COMPILER(MSVC) 
-PNT_TIB64 pTib = reinterpret_cast<PNT_TIB64>(NtCurrentTeb()); 
-return (void*)pTib->StackBase; 
-#elif PLATFORM(WIN_OS) && PLATFORM(X86) && COMPILER(GCC) 
-// offset 0x18 from the FS segment register gives a pointer to 
-// the thread information block for the current thread 
-NT_TIB* pTib; 
-asm ( "movl %%fs:0x18, %0\n" 
-: "=r" (pTib) 
-); 
-return (void*)pTib->StackBase; 
+#elif PLATFORM(WIN_OS) && PLATFORM(X86) && COMPILER(MSVC)
+// offset 0x18 from the FS segment register gives a pointer to
+// the thread information block for the current thread
+NT_TIB* pTib;
+__asm {
+MOV EAX, FS:[18h]
+MOV pTib, EAX
+}
+return (void*)pTib->StackBase;
+#elif PLATFORM(WIN_OS) && PLATFORM(X86_64) && COMPILER(MSVC)
+PNT_TIB64 pTib = reinterpret_cast<PNT_TIB64>(NtCurrentTeb());
+return (void*)pTib->StackBase;
+#elif PLATFORM(WIN_OS) && PLATFORM(X86) && COMPILER(GCC)
+// offset 0x18 from the FS segment register gives a pointer to
+// the thread information block for the current thread
+NT_TIB* pTib;
+asm ( "movl %%fs:0x18, %0\n"
+: "=r" (pTib)
+);
+return (void*)pTib->StackBase;
 #endif
 */
 static INLINE int on_stack(void *a)
@@ -186,9 +186,9 @@ static INLINE int on_stack(void *a)
 #else /* ! TLS */
   thread_abi_t *t = pthread_getspecific(thread_abi);
 #endif /* ! TLS */
-  if ((t->stack_addr_low <= (uintptr_t)a) && ((uintptr_t)a < t->stack_addr_high)) { 
+  if ((t->stack_addr_low <= (uintptr_t)a) && ((uintptr_t)a < t->stack_addr_high)) {
     return 1;
-  } 
+  }
   return 0;
 }
 #endif /* STACK_CHECK */
@@ -214,7 +214,7 @@ INLINE size_t block_size(void *ptr)
 
 
 /* ################################################################### *
- * 
+ *
  * ################################################################### */
 static void abi_init(void);
 
@@ -291,16 +291,15 @@ reload:
 
       /* TinySTM initialization */
       stm_init();
-      mod_mem_init(0);
+      mod_mem_init();
 # ifdef TM_GCC
       mod_alloc_cpp();
 # endif /* TM_GCC */
       mod_log_init();
-      mod_cb_init();
       ATOMIC_STORE(&global_abi.status, ABI_INITIALIZED);
       /* Also initialize thread as specify in the specification */
       abi_init_thread();
-      return; 
+      return;
     } else {
       goto reload;
     }
@@ -406,21 +405,21 @@ void _ITM_CALL_CONVENTION _ITM_addUserCommitAction(TX_ARGS
                               _ITM_transactionId resumingTransactionId,
                               void *__arg)
 {
-  stm_on_commit(__commit, __arg);
+  stm_register(NULL, NULL, NULL, NULL, __commit, NULL, __arg);
 }
 
 void _ITM_CALL_CONVENTION _ITM_addUserUndoAction(TX_ARGS
                             const _ITM_userUndoFunction __undo, void * __arg)
 {
-  stm_on_abort(__undo, __arg);
+  stm_register(NULL, NULL, NULL, NULL, NULL, __undo, __arg);
 }
 
 /*
  * Specification: The getTransactionId function returns a sequence number for
- * the current transaction. Within a transaction, nested transactions are 
+ * the current transaction. Within a transaction, nested transactions are
  * numbered sequentially in the order in which they start, with the outermost
  * transaction getting the lowest number, and non-transactional code the value
- * _ITM_NoTransactionId, which is less than any transaction id for 
+ * _ITM_NoTransactionId, which is less than any transaction id for
  * transactional code.
  */
 _ITM_transactionId _ITM_CALL_CONVENTION _ITM_getTransactionId(TX_ARG)
@@ -468,11 +467,11 @@ void _ITM_CALL_CONVENTION _ITM_finalizeThread(void)
 
 #ifdef __PIC__
 /* Add call when the library is loaded and unloaded */
-#define ATTR_CONSTRUCTOR __attribute__ ((constructor))  
-#define ATTR_DESTRUCTOR __attribute__ ((destructor))  
+#define ATTR_CONSTRUCTOR __attribute__ ((constructor))
+#define ATTR_DESTRUCTOR __attribute__ ((destructor))
 #else
-#define ATTR_CONSTRUCTOR 
-#define ATTR_DESTRUCTOR 
+#define ATTR_CONSTRUCTOR
+#define ATTR_DESTRUCTOR
 #endif
 
 void ATTR_DESTRUCTOR _ITM_CALL_CONVENTION _ITM_finalizeProcess(void)
@@ -493,7 +492,7 @@ void _ITM_CALL_CONVENTION _ITM_error(const _ITM_srcLocation *__src, int errorCod
 }
 
 /* The _ITM_beginTransaction is defined in assembly (arch.S)  */
-uint32_t _ITM_CALL_CONVENTION GTM_begin_transaction(TX_ARGS uint32_t attr, jmp_buf * buf) 
+uint32_t _ITM_CALL_CONVENTION GTM_begin_transaction(TX_ARGS uint32_t attr, jmp_buf * buf)
 {
   /* FIXME first time return a_saveLiveVariable +> siglongjmp must return a_restoreLiveVariable (and set a_saveLiveVariable)
    *       check a_abortTransaction attr
@@ -707,7 +706,7 @@ void _ITM_CALL_CONVENTION _ITM_commitTransactionEH(void *exc_ptr)
 
 /* TODO if WRITE_BACK/ALL?, write to stack must be saved and written directly
  * TODO must use stm_log is addresses are under the beginTransaction
-  if (on_stack(addr)) { stm_log_u64(addr); *addr = val; } 
+  if (on_stack(addr)) { stm_log_u64(addr); *addr = val; }
 not enough because if we abort and restore -> stack can be corrupted
 */
 #ifdef STACK_CHECK

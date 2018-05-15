@@ -116,12 +116,8 @@ void stm_free2_tx(struct stm_tx *tx, void *addr, size_t idx, size_t size);
  * Initialize the module.  This function must be called once, from the
  * main thread, after initializing the STM library and before
  * performing any transactional operation.
- *
- * @param gc
- *   True (non-zero) to enable epoch-based garbage collector when
- *   freeing memory in transactions.
  */
-void mod_mem_init(int gc);
+void mod_mem_init();
 
 # ifdef __cplusplus
 }
