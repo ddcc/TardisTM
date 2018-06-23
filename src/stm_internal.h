@@ -800,6 +800,27 @@ stm_allocate_ws_entries(stm_tx_t *tx, int extend)
 #endif /* CM == CM_MODULAR || defined(CONFLICT_TRACKING) */
 }
 
+static INLINE r_entry_t *
+stm_add_to_rs(stm_tx_t *tx, volatile stm_word_t *lock, stm_word_t version) {
+  r_entry_t *r;
+
+  /* No need to add to read set for read-only transaction */
+  if (tx->attr.read_only)
+    return NULL;
+
+#ifdef NO_DUPLICATES_IN_RW_SETS
+  if ((r = stm_has_read(tx, lock)) != NULL)
+    return r;
+#endif /* NO_DUPLICATES_IN_RW_SETS */
+
+  /* Add address and version to read set */
+  if (tx->r_set.nb_entries == tx->r_set.size)
+    stm_allocate_rs_entries(tx, 1);
+  r = &tx->r_set.entries[tx->r_set.nb_entries++];
+  r->version = version;
+  r->lock = lock;
+  return r;
+}
 
 #if DESIGN == WRITE_BACK_ETL
 # include "stm_wbetl.h"

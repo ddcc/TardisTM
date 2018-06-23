@@ -142,23 +142,6 @@ stm_wt_rollback(stm_tx_t *tx)
   ATOMIC_MB_WRITE;
 }
 
-static INLINE void
-stm_wt_add_to_rs(stm_tx_t *tx, stm_word_t value, stm_word_t version, volatile stm_word_t *lock)
-{
-  r_entry_t *r;
-
-  /* No need to add to read set for read-only transaction */
-  if (tx->attr.read_only)
-    return;
-
-  /* Add address and version to read set */
-  if (tx->r_set.nb_entries == tx->r_set.size)
-    stm_allocate_rs_entries(tx, 1);
-  r = &tx->r_set.entries[tx->r_set.nb_entries++];
-  r->version = version;
-  r->lock = lock;
-}
-
 static INLINE stm_word_t
 stm_wt_read(stm_tx_t *tx, volatile stm_word_t *addr)
 {
@@ -203,7 +186,7 @@ stm_wt_read(stm_tx_t *tx, volatile stm_word_t *addr)
 #endif /* NO_DUPLICATES_IN_RW_SETS */
 
     /* Add to read set (update transactions only) */
-    stm_wt_add_to_rs(tx, value, version, lock);
+    stm_add_to_rs(tx, lock, version);
 
     /* Valid version? */
     if (unlikely(version > tx->end)) {

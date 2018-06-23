@@ -163,7 +163,6 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
 {
   volatile stm_word_t *lock;
   stm_word_t l, l2, value, version;
-  r_entry_t *r;
   w_entry_t *w;
 #if CM == CM_MODULAR
   stm_word_t t;
@@ -378,18 +377,7 @@ stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
 #ifdef READ_LOCKED_DATA
  add_to_read_set:
 #endif /* READ_LOCKED_DATA */
-  if (!tx->attr.read_only) {
-#ifdef NO_DUPLICATES_IN_RW_SETS
-    if (stm_has_read(tx, lock) != NULL)
-      goto return_value;
-#endif /* NO_DUPLICATES_IN_RW_SETS */
-    /* Add address and version to read set */
-    if (tx->r_set.nb_entries == tx->r_set.size)
-      stm_allocate_rs_entries(tx, 1);
-    r = &tx->r_set.entries[tx->r_set.nb_entries++];
-    r->version = version;
-    r->lock = lock;
-  }
+  stm_add_to_rs(tx, lock, version);
  return_value:
   return value;
 }
