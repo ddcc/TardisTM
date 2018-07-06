@@ -186,10 +186,14 @@ enum {                                    /* Transaction status */
 # define WRITE_MASK                     0x01UL              /* 1 bit */
 # define OWNED_MASK                     (WRITE_MASK)
 #endif /* CM != CM_MODULAR */
+#if DESIGN == WRITE_THROUGH
 # define INCARNATION_BITS               3UL                 /* 3 bits */
 # define INCARNATION_MAX                ((1UL << INCARNATION_BITS) - 1)
 # define INCARNATION_MASK               (INCARNATION_MAX << 1)
 # define LOCK_BITS                      (OWNED_BITS + INCARNATION_BITS)
+#else
+# define LOCK_BITS                      (OWNED_BITS)
+#endif /* DESIGN == WRITE_THROUGH */
 #define MAX_THREADS                     8192                /* Upper bound (large enough) */
 #define VERSION_MAX                     ((~(stm_word_t)0 >> LOCK_BITS) - MAX_THREADS)
 
@@ -204,9 +208,11 @@ enum {                                    /* Transaction status */
 #endif /* CM == CM_MODULAR */
 #define LOCK_GET_TIMESTAMP(l)           (l >> (LOCK_BITS))
 #define LOCK_SET_TIMESTAMP(t)           (t << (LOCK_BITS))
-#define LOCK_GET_INCARNATION(l)         ((l & INCARNATION_MASK) >> OWNED_BITS)
-#define LOCK_SET_INCARNATION(i)         (i << OWNED_BITS)   /* OWNED bit not set */
-#define LOCK_UPD_INCARNATION(l, i)      ((l & ~(stm_word_t)(INCARNATION_MASK | OWNED_MASK)) | LOCK_SET_INCARNATION(i))
+#if DESIGN == WRITE_THROUGH
+# define LOCK_GET_INCARNATION(l)        ((l & INCARNATION_MASK) >> OWNED_BITS)
+# define LOCK_SET_INCARNATION(i)        (i << OWNED_BITS)   /* OWNED bit not set */
+# define LOCK_UPD_INCARNATION(l, i)     ((l & ~(stm_word_t)(INCARNATION_MASK | OWNED_MASK)) | LOCK_SET_INCARNATION(i))
+#endif /* DESIGN == WRITE_THROUGH */
 #ifdef UNIT_TX
 # define LOCK_UNIT                       (~(stm_word_t)0)
 #endif /* UNIT_TX */
