@@ -201,67 +201,67 @@ enum {
   /**
    * Abort due to explicit call from the programmer.
    */
-  STM_ABORT_EXPLICIT = (1 << 5),
+  STM_ABORT_EXPLICIT = (1UL << 5),
   /**
    * Abort and no retry due to explicit call from the programmer.
    */
-  STM_ABORT_NO_RETRY = (1 << 5) | (0x01 << 8),
+  STM_ABORT_NO_RETRY = (1UL << 5) | (1UL << 8),
   /**
    * Implicit abort (high order bits indicate more detailed reason).
    */
-  STM_ABORT_IMPLICIT = (1 << 6),
+  STM_ABORT_IMPLICIT = (1UL << 6),
   /**
    * Abort upon reading a memory location being read by another
    * transaction.
    */
-  STM_ABORT_RR_CONFLICT = (1 << 6) | (0x01 << 8),
+  STM_ABORT_RR_CONFLICT = (1UL << 6) | (0x01UL << 8),
   /**
    * Abort upon writing a memory location being read by another
    * transaction.
    */
-  STM_ABORT_RW_CONFLICT = (1 << 6) | (0x02 << 8),
+  STM_ABORT_RW_CONFLICT = (1UL << 6) | (0x02UL << 8),
   /**
    * Abort upon reading a memory location being written by another
    * transaction.
    */
-  STM_ABORT_WR_CONFLICT = (1 << 6) | (0x03 << 8),
+  STM_ABORT_WR_CONFLICT = (1UL << 6) | (0x03UL << 8),
   /**
    * Abort upon writing a memory location being written by another
    * transaction.
    */
-  STM_ABORT_WW_CONFLICT = (1 << 6) | (0x04 << 8),
+  STM_ABORT_WW_CONFLICT = (1UL << 6) | (0x04UL << 8),
   /**
    * Abort upon read due to failed validation.
    */
-  STM_ABORT_VAL_READ = (1 << 6) | (0x05 << 8),
+  STM_ABORT_VAL_READ = (1UL << 6) | (0x05UL << 8),
   /**
    * Abort upon write due to failed validation.
    */
-  STM_ABORT_VAL_WRITE = (1 << 6) | (0x06 << 8),
+  STM_ABORT_VAL_WRITE = (1UL << 6) | (0x06UL << 8),
   /**
    * Abort upon commit due to failed validation.
    */
-  STM_ABORT_VALIDATE = (1 << 6) | (0x07 << 8),
+  STM_ABORT_VALIDATE = (1UL << 6) | (0x07UL << 8),
   /**
    * Abort upon deferring to an irrevocable transaction.
    */
-  STM_ABORT_IRREVOCABLE = (1 << 6) | (0x09 << 8),
+  STM_ABORT_IRREVOCABLE = (1UL << 6) | (0x09UL << 8),
   /**
    * Abort due to being killed by another transaction.
    */
-  STM_ABORT_KILLED = (1 << 6) | (0x0A << 8),
+  STM_ABORT_KILLED = (1UL << 6) | (0x0AUL << 8),
   /**
    * Abort due to receiving a signal.
    */
-  STM_ABORT_SIGNAL = (1 << 6) | (0x0B << 8),
+  STM_ABORT_SIGNAL = (1UL << 6) | (0x0BUL << 8),
   /**
    * Abort due to reaching the write set size limit.
    */
-  STM_ABORT_EXTEND_WS = (1 << 6) | (0x0C << 8),
+  STM_ABORT_EXTEND_WS = (1UL << 6) | (0x0CUL << 8),
   /**
    * Abort due to other reasons (internal to the protocol).
    */
-  STM_ABORT_OTHER = (1 << 6) | (0x0F << 8)
+  STM_ABORT_OTHER = (1UL << 6) | (0x0FUL << 8)
 };
 
 /* ################################################################### *

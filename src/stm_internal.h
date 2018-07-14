@@ -89,7 +89,7 @@
 #endif /* LOCK_ARRAY_LOG_SIZE */
 
 #ifndef LOCK_SHIFT_EXTRA
-# define LOCK_SHIFT_EXTRA               2                   /* 2 extra shift */
+# define LOCK_SHIFT_EXTRA               2UL                 /* 2 extra shift */
 #endif /* LOCK_SHIFT_EXTRA */
 
 #if CM == CM_BACKOFF
@@ -127,18 +127,18 @@
  * TYPES
  * ################################################################### */
 
-enum {                                  /* Transaction status */
-  TX_IDLE = 0,
-  TX_ACTIVE = 1,                        /* Lowest bit indicates activity */
-  TX_COMMITTED = (1 << 1),
-  TX_ABORTED = (2 << 1),
-  TX_COMMITTING = (1 << 1) | TX_ACTIVE,
-  TX_ABORTING = (2 << 1) | TX_ACTIVE,
-  TX_KILLED = (3 << 1) | TX_ACTIVE,
-  TX_IRREVOCABLE = 0x08 | TX_ACTIVE     /* Fourth bit indicates irrevocability */
+enum {                                    /* Transaction status */
+  TX_IDLE = 0UL,
+  TX_ACTIVE = 1UL,                        /* Lowest bit indicates activity */
+  TX_COMMITTED = (1UL << 1),
+  TX_ABORTED = (2UL << 1),
+  TX_COMMITTING = (1UL << 1) | TX_ACTIVE,
+  TX_ABORTING = (2UL << 1) | TX_ACTIVE,
+  TX_KILLED = (3UL << 1) | TX_ACTIVE,
+  TX_IRREVOCABLE = (1UL << 3) | TX_ACTIVE /* Fourth bit indicates irrevocability */
 };
-#define STATUS_BITS                     4
-#define STATUS_MASK                     ((1 << STATUS_BITS) - 1)
+#define STATUS_BITS                     4UL
+#define STATUS_MASK                     ((1UL << STATUS_BITS) - 1)
 
 #if CM == CM_MODULAR
 # define SET_STATUS(s, v)               ATOMIC_STORE_REL(&(s), ((s) & ~(stm_word_t)STATUS_MASK) | (v))
@@ -177,19 +177,19 @@ enum {                                  /* Transaction status */
  */
 
 #if CM == CM_MODULAR
-# define OWNED_BITS                     2                   /* 2 bits */
-# define WRITE_MASK                     0x01                /* 1 bit */
-# define READ_MASK                      0x02                /* 1 bit */
+# define OWNED_BITS                     2UL                 /* 2 bits */
+# define WRITE_MASK                     0x01UL              /* 1 bit */
+# define READ_MASK                      0x02UL              /* 1 bit */
 # define OWNED_MASK                     (WRITE_MASK | READ_MASK)
 #else /* CM != CM_MODULAR */
-# define OWNED_BITS                     1                   /* 1 bit */
-# define WRITE_MASK                     0x01                /* 1 bit */
+# define OWNED_BITS                     1UL                 /* 1 bit */
+# define WRITE_MASK                     0x01UL              /* 1 bit */
 # define OWNED_MASK                     (WRITE_MASK)
 #endif /* CM != CM_MODULAR */
-#define INCARNATION_BITS                3                   /* 3 bits */
-#define INCARNATION_MAX                 ((1 << INCARNATION_BITS) - 1)
-#define INCARNATION_MASK                (INCARNATION_MAX << 1)
-#define LOCK_BITS                       (OWNED_BITS + INCARNATION_BITS)
+# define INCARNATION_BITS               3UL                 /* 3 bits */
+# define INCARNATION_MAX                ((1UL << INCARNATION_BITS) - 1)
+# define INCARNATION_MASK               (INCARNATION_MAX << 1)
+# define LOCK_BITS                      (OWNED_BITS + INCARNATION_BITS)
 #define MAX_THREADS                     8192                /* Upper bound (large enough) */
 #define VERSION_MAX                     ((~(stm_word_t)0 >> LOCK_BITS) - MAX_THREADS)
 
@@ -217,14 +217,14 @@ enum {                                  /* Transaction status */
  */
 #ifdef USE_BLOOM_FILTER
 # define FILTER_HASH(a)                 (((stm_word_t)a >> 2) ^ ((stm_word_t)a >> 5))
-# define FILTER_BITS(a)                 (1 << (FILTER_HASH(a) & 0x1F))
+# define FILTER_BITS(a)                 (1UL << (FILTER_HASH(a) & 0x1F))
 #endif /* USE_BLOOM_FILTER */
 
 /*
  * We use an array of locks and hash the address to find the location of the lock.
  * We try to avoid collisions as much as possible (two addresses covered by the same lock).
  */
-#define LOCK_ARRAY_SIZE                 (1 << LOCK_ARRAY_LOG_SIZE)
+#define LOCK_ARRAY_SIZE                 (1UL << LOCK_ARRAY_LOG_SIZE)
 #define LOCK_MASK                       (LOCK_ARRAY_SIZE - 1)
 #define LOCK_SHIFT                      (((sizeof(stm_word_t) == 4) ? 2 : 3) + LOCK_SHIFT_EXTRA)
 #define LOCK_IDX(a)                     (((stm_word_t)(a) >> LOCK_SHIFT) & LOCK_MASK)
