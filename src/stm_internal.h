@@ -337,7 +337,7 @@ typedef struct w_entry {                /* Write set entry */
   union {                               /* For padding... */
     struct {
       const stm_lock_t *lock;           /* Pointer to lock (for fast access) */
-      volatile stm_word_t *addr;        /* Address written */
+      const volatile stm_word_t *addr;  /* Address written */
       stm_word_t value;                 /* New (write-back) or old (write-through) value */
       stm_word_t mask;                  /* Write mask */
       stm_version_t version;            /* Version overwritten */
@@ -379,21 +379,21 @@ typedef struct tx_conflict {
 } tx_conflict_t;
 
 typedef struct cb_entry1 {              /* Callback entry */
-  const void (*f)(struct stm_tx *,
-                  const void *);        /* Function */
+  void (*f)(struct stm_tx *,
+            const void *);              /* Function */
   const void *arg;                      /* Argument to be passed to function */
 } cb_entry1_t;
 
 typedef struct cb_entry2 {              /* Callback entry */
-  const void (*f)(const struct stm_tx *,
-                  const void *);        /* Function */
+  void (*f)(const struct stm_tx *,
+            const void *);              /* Function */
   const void *arg;                      /* Argument to be passed to function */
 } cb_entry2_t;
 
 typedef struct cb_entry3 {              /* Callback entry */
-  const void (*f)(const struct stm_tx *,
-                  const stm_tx_abort_t,
-                  const void *);        /* Function */
+  void (*f)(const struct stm_tx *,
+            const stm_tx_abort_t,
+            const void *);              /* Function */
   const void *arg;                      /* Argument to be passed to function */
 } cb_entry3_t;
 
@@ -412,7 +412,7 @@ typedef struct stm_tx {                 /* Transaction descriptor */
 #if CM == CM_TIMESTAMP
   stm_word_t timestamp;                 /* Timestamp (not changed upon restart) */
 #endif /* CM == CM_TIMESTAMP */
-  void *data[MAX_SPECIFIC];             /* Transaction-specific data (fixed-size array for better speed) */
+  const void *data[MAX_SPECIFIC];       /* Transaction-specific data (fixed-size array for better speed) */
   struct stm_tx *next;                  /* For keeping track of all transactional threads */
 #ifdef CONFLICT_TRACKING
   pthread_t thread_id;                  /* Thread identifier (immutable) */
@@ -506,9 +506,9 @@ cm_karma(struct stm_tx *tx, const tx_conflict_t *conflict);
 
 #ifdef TRANSACTION_OPERATIONS
 static NOINLINE int
-stm_kill(stm_tx_t *tx, stm_tx_t *other, stm_word_t status);
+stm_kill(struct stm_tx *tx, stm_tx_t *other, const stm_word_t status);
 static NOINLINE void
-stm_drop(stm_tx_t *tx);
+stm_drop(struct stm_tx *tx);
 #endif /* TRANSACTION_OPERATIONS */
 
 
@@ -615,7 +615,7 @@ stm_quiesce_exit_thread(stm_tx_t *tx)
  * Wait for all transactions to be block on a barrier.
  */
 static NOINLINE void
-stm_quiesce_barrier(stm_tx_t *tx, void (*f)(void *), void *arg)
+stm_quiesce_barrier(stm_tx_t *tx, void (* const f)(const void *), const void *arg)
 {
   PRINT_DEBUG("==> stm_quiesce_barrier()\n");
 
@@ -650,9 +650,9 @@ stm_quiesce_barrier(stm_tx_t *tx, void (*f)(void *), void *arg)
  * Wait for all transactions to be out of their current transaction.
  */
 static INLINE int
-stm_quiesce(stm_tx_t *tx, int block)
+stm_quiesce(const stm_tx_t *tx, const int block)
 {
-  stm_tx_t *t;
+  const stm_tx_t *t;
 #ifdef TRANSACTION_OPERATIONS
   stm_word_t s, c;
 #endif /* TRANSACTION_OPERATIONS */
@@ -746,7 +746,7 @@ stm_quiesce_release(stm_tx_t *tx)
  * Reset clock and timestamps
  */
 static INLINE void
-rollover_clock(void *arg)
+rollover_clock(const void *arg)
 {
   PRINT_DEBUG("==> rollover_clock()\n");
 
@@ -790,7 +790,7 @@ stm_has_read(stm_tx_t *tx, const stm_lock_t *lock)
  * Check if address has been written previously.
  */
 static INLINE w_entry_t *
-stm_has_written(stm_tx_t *tx, volatile stm_word_t *addr)
+stm_has_written(const stm_tx_t *tx, const volatile stm_word_t *addr)
 {
 # ifdef USE_BLOOM_FILTER
   stm_word_t mask;
@@ -816,7 +816,7 @@ stm_has_written(stm_tx_t *tx, volatile stm_word_t *addr)
  * (Re)allocate read set entries.
  */
 static NOINLINE void
-stm_allocate_rs_entries(stm_tx_t *tx, int extend)
+stm_allocate_rs_entries(stm_tx_t *tx, const int extend)
 {
   PRINT_DEBUG("==> stm_allocate_rs_entries(%p[%lu-%lu],%d)\n", tx, (unsigned long)tx->start, (unsigned long)tx->end, extend);
 
@@ -834,7 +834,7 @@ stm_allocate_rs_entries(stm_tx_t *tx, int extend)
  * (Re)allocate write set entries.
  */
 static NOINLINE void
-stm_allocate_ws_entries(stm_tx_t *tx, int extend)
+stm_allocate_ws_entries(stm_tx_t *tx, const int extend)
 {
 #if defined(CONFLICT_TRACKING)
   int i, first = (extend ? tx->w_set.size : 0);
@@ -1015,7 +1015,7 @@ stm_conflict_handle(stm_tx_t *tx, const tx_conflict_t *conflict)
  * Kill other transaction.
  */
 static NOINLINE int
-stm_kill(stm_tx_t *tx, stm_tx_t *other, stm_word_t status)
+stm_kill(stm_tx_t *tx, stm_tx_t *other, const stm_word_t status)
 {
   stm_word_t c, t;
 
@@ -1245,8 +1245,7 @@ stm_rollback(stm_tx_t *tx, stm_tx_abort_t reason)
 
   /* Callbacks */
   if (likely(_tinystm.nb_abort_cb != 0)) {
-    unsigned int cb;
-    for (cb = 0; cb < _tinystm.nb_abort_cb; cb++)
+    for (unsigned int cb = 0; cb < _tinystm.nb_abort_cb; cb++)
       _tinystm.abort_cb[cb].f(tx, reason, _tinystm.abort_cb[cb].arg);
   }
 
@@ -1672,7 +1671,7 @@ int_stm_commit(stm_tx_t *tx)
 }
 
 static INLINE stm_word_t
-int_stm_load(stm_tx_t *tx, volatile stm_word_t *addr)
+int_stm_load(stm_tx_t *tx, const volatile stm_word_t *addr)
 {
 #ifdef TM_STATISTICS2
   ++tx->stat_reads;
@@ -1710,21 +1709,21 @@ int_stm_store2(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_wo
 }
 
 static INLINE int
-int_stm_active(stm_tx_t *tx)
+int_stm_active(const stm_tx_t *tx)
 {
   assert (tx != NULL);
   return IS_ACTIVE(tx->status);
 }
 
 static INLINE int
-int_stm_aborted(stm_tx_t *tx)
+int_stm_aborted(const stm_tx_t *tx)
 {
   assert (tx != NULL);
   return (GET_STATUS(tx->status) == TX_ABORTED);
 }
 
 static INLINE int
-int_stm_irrevocable(stm_tx_t *tx)
+int_stm_irrevocable(const stm_tx_t *tx)
 {
   assert (tx != NULL);
 #ifdef IRREVOCABLE_ENABLED
@@ -1735,7 +1734,7 @@ int_stm_irrevocable(stm_tx_t *tx)
 }
 
 static INLINE int
-int_stm_killed(stm_tx_t *tx)
+int_stm_killed(const stm_tx_t *tx)
 {
   assert (tx != NULL);
   return (GET_STATUS(tx->status) == TX_KILLING);
@@ -1750,7 +1749,7 @@ int_stm_get_env(stm_tx_t *tx)
 }
 
 static INLINE int
-int_stm_get_stats(stm_tx_t *tx, const char *name, void *val)
+int_stm_get_stats(const stm_tx_t *tx, const char *name, void *val)
 {
   assert (tx != NULL);
 
@@ -1860,14 +1859,14 @@ int_stm_get_stats(stm_tx_t *tx, const char *name, void *val)
 }
 
 static INLINE void
-int_stm_set_specific(stm_tx_t *tx, int key, void *data)
+int_stm_set_specific(stm_tx_t *tx, const int key, const void *data)
 {
   assert (tx != NULL && key >= 0 && key < _tinystm.nb_specific);
   ATOMIC_STORE(&tx->data[key], data);
 }
 
 static INLINE void *
-int_stm_get_specific(stm_tx_t *tx, int key)
+int_stm_get_specific(const stm_tx_t *tx, const int key)
 {
   assert (tx != NULL && key >= 0 && key < _tinystm.nb_specific);
   return (void *)ATOMIC_LOAD(&tx->data[key]);

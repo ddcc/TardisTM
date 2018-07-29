@@ -72,13 +72,13 @@ enum {                                  /* Descriptor status */
 
 typedef struct gc_block {               /* Block of allocated memory */
   const void *addr;                     /* Address of memory */
-  struct gc_block *next;                /* Next block */
+  const struct gc_block *next;          /* Next block */
 } gc_block_t;
 
 typedef struct gc_region {              /* A list of allocated memory blocks */
   struct gc_block *blocks;              /* Memory blocks */
   gc_word_t ts;                         /* Deallocation timestamp */
-  struct gc_region *next;               /* Next region */
+  const struct gc_region *next;         /* Next region */
 } gc_region_t;
 
 typedef struct gc_thread {              /* Descriptor of an active thread */
@@ -86,7 +86,7 @@ typedef struct gc_thread {              /* Descriptor of an active thread */
     struct {
       gc_word_t used;                   /* Is this entry used? */
       gc_word_t ts;                     /* Start timestamp */
-      gc_region_t *head;                /* First memory region(s) assigned to thread */
+      const gc_region_t *head;          /* First memory region(s) assigned to thread */
       gc_region_t *tail;                /* Last memory region(s) assigned to thread */
 #ifndef NO_PERIODIC_CLEANUP
       unsigned int frees;               /* How many blocks have been freed? */
@@ -101,7 +101,7 @@ static struct {                         /* Descriptors of active threads */
   volatile gc_word_t nb_active;         /* Number of used thread slots */
 } gc_threads;
 
-static gc_word_t (*gc_current_epoch)(void) _CALLCONV; /* Read the value of the current epoch */
+static const gc_word_t (*gc_current_epoch)(void) _CALLCONV; /* Read the value of the current epoch */
 
 /* ################################################################### *
  * STATIC
@@ -118,7 +118,7 @@ static inline int gc_get_idx(void)
 /*
  * Compute a lower bound on the minimum start time of all active transactions.
  */
-static inline gc_word_t gc_compute_min(gc_word_t now)
+static inline gc_word_t gc_compute_min(const gc_word_t now)
 {
   int i;
   gc_word_t min, ts;
@@ -154,9 +154,9 @@ static inline gc_word_t gc_compute_min(gc_word_t now)
 /*
  * Free block list.
  */
-static inline void gc_clean_blocks(gc_block_t *mb)
+static inline void gc_clean_blocks(const gc_block_t *mb)
 {
-  gc_block_t *next_mb;
+  const gc_block_t *next_mb;
 
   while (mb != NULL) {
     PRINT_DEBUG("==> free(%d,a=%p)\n", gc_get_idx(), mb->addr);
@@ -170,9 +170,9 @@ static inline void gc_clean_blocks(gc_block_t *mb)
 /*
  * Free region list.
  */
-static inline void gc_clean_regions(gc_region_t *mr)
+static inline void gc_clean_regions(const gc_region_t *mr)
 {
-  gc_region_t *next_mr;
+  const gc_region_t *next_mr;
 
   while (mr != NULL) {
     gc_clean_blocks(mr->blocks);
@@ -185,9 +185,9 @@ static inline void gc_clean_regions(gc_region_t *mr)
 /*
  * Garbage-collect old data associated with a thread.
  */
-void gc_cleanup_thread(int idx, gc_word_t min)
+void gc_cleanup_thread(const int idx, const gc_word_t min)
 {
-  gc_region_t *mr;
+  const gc_region_t *mr;
 
   PRINT_DEBUG("==> gc_cleanup_thread(%d,m=%lu)\n", idx, (unsigned long)min);
 
@@ -216,7 +216,7 @@ void gc_cleanup_thread(int idx, gc_word_t min)
 /*
  * Initialize GC library (to be called from main thread).
  */
-void gc_init(gc_word_t (*epoch)(void) _CALLCONV)
+void gc_init(const gc_word_t (*epoch)(void) _CALLCONV)
 {
   int i;
 
@@ -315,7 +315,7 @@ void gc_exit_thread(void)
  * Set new epoch (to be called by each thread, typically when starting
  * new transactions to indicate their start timestamp).
  */
-void gc_set_epoch(gc_word_t epoch)
+void gc_set_epoch(const gc_word_t epoch)
 {
   int idx = gc_get_idx();
 
@@ -334,7 +334,7 @@ void gc_set_epoch(gc_word_t epoch)
 /*
  * Free memory (the thread must indicate the current timestamp).
  */
-void gc_free(const void *addr, gc_word_t epoch)
+void gc_free(const void *addr, const gc_word_t epoch)
 {
   gc_region_t *mr;
   gc_block_t *mb;

@@ -54,7 +54,7 @@ extern "C" {
  * @return
  *   Value read from the specified address.
  */
-uint8_t stm_load_u8(volatile uint8_t *addr) _CALLCONV;
+uint8_t stm_load_u8(const volatile uint8_t *addr) _CALLCONV;
 
 /**
  * Transactional load of an unsigned 16-bit value.
@@ -64,7 +64,7 @@ uint8_t stm_load_u8(volatile uint8_t *addr) _CALLCONV;
  * @return
  *   Value read from the specified address.
  */
-uint16_t stm_load_u16(volatile uint16_t *addr) _CALLCONV;
+uint16_t stm_load_u16(const volatile uint16_t *addr) _CALLCONV;
 
 /**
  * Transactional load of an unsigned 32-bit value.
@@ -74,7 +74,7 @@ uint16_t stm_load_u16(volatile uint16_t *addr) _CALLCONV;
  * @return
  *   Value read from the specified address.
  */
-uint32_t stm_load_u32(volatile uint32_t *addr) _CALLCONV;
+uint32_t stm_load_u32(const volatile uint32_t *addr) _CALLCONV;
 
 /**
  * Transactional load of an unsigned 64-bit value.
@@ -84,7 +84,7 @@ uint32_t stm_load_u32(volatile uint32_t *addr) _CALLCONV;
  * @return
  *   Value read from the specified address.
  */
-uint64_t stm_load_u64(volatile uint64_t *addr) _CALLCONV;
+uint64_t stm_load_u64(const volatile uint64_t *addr) _CALLCONV;
 
 /**
  * Transactional load of a char value.
@@ -94,7 +94,7 @@ uint64_t stm_load_u64(volatile uint64_t *addr) _CALLCONV;
  * @return
  *   Value read from the specified address.
  */
-char stm_load_char(volatile char *addr) _CALLCONV;
+char stm_load_char(const volatile char *addr) _CALLCONV;
 
 /**
  * Transactional load of an unsigned char value.
@@ -104,7 +104,7 @@ char stm_load_char(volatile char *addr) _CALLCONV;
  * @return
  *   Value read from the specified address.
  */
-unsigned char stm_load_uchar(volatile unsigned char *addr) _CALLCONV;
+unsigned char stm_load_uchar(const volatile unsigned char *addr) _CALLCONV;
 
 /**
  * Transactional load of a short value.
@@ -114,7 +114,7 @@ unsigned char stm_load_uchar(volatile unsigned char *addr) _CALLCONV;
  * @return
  *   Value read from the specified address.
  */
-short stm_load_short(volatile short *addr) _CALLCONV;
+short stm_load_short(const volatile short *addr) _CALLCONV;
 
 /**
  * Transactional load of an unsigned short value.
@@ -124,7 +124,7 @@ short stm_load_short(volatile short *addr) _CALLCONV;
  * @return
  *   Value read from the specified address.
  */
-unsigned short stm_load_ushort(volatile unsigned short *addr) _CALLCONV;
+unsigned short stm_load_ushort(const volatile unsigned short *addr) _CALLCONV;
 
 /**
  * Transactional load of an int value.
@@ -134,7 +134,7 @@ unsigned short stm_load_ushort(volatile unsigned short *addr) _CALLCONV;
  * @return
  *   Value read from the specified address.
  */
-int stm_load_int(volatile int *addr) _CALLCONV;
+int stm_load_int(const volatile int *addr) _CALLCONV;
 
 /**
  * Transactional load of an unsigned int value.
@@ -144,7 +144,7 @@ int stm_load_int(volatile int *addr) _CALLCONV;
  * @return
  *   Value read from the specified address.
  */
-unsigned int stm_load_uint(volatile unsigned int *addr) _CALLCONV;
+unsigned int stm_load_uint(const volatile unsigned int *addr) _CALLCONV;
 
 /**
  * Transactional load of a long value.
@@ -154,7 +154,7 @@ unsigned int stm_load_uint(volatile unsigned int *addr) _CALLCONV;
  * @return
  *   Value read from the specified address.
  */
-long stm_load_long(volatile long *addr) _CALLCONV;
+long stm_load_long(const volatile long *addr) _CALLCONV;
 
 /**
  * Transactional load of an unsigned long value.
@@ -164,7 +164,7 @@ long stm_load_long(volatile long *addr) _CALLCONV;
  * @return
  *   Value read from the specified address.
  */
-unsigned long stm_load_ulong(volatile unsigned long *addr) _CALLCONV;
+unsigned long stm_load_ulong(const volatile unsigned long *addr) _CALLCONV;
 
 /**
  * Transactional load of a float value.
@@ -174,7 +174,7 @@ unsigned long stm_load_ulong(volatile unsigned long *addr) _CALLCONV;
  * @return
  *   Value read from the specified address.
  */
-float stm_load_float(volatile float *addr) _CALLCONV;
+float stm_load_float(const volatile float *addr) _CALLCONV;
 
 /**
  * Transactional load of a double value.
@@ -184,7 +184,7 @@ float stm_load_float(volatile float *addr) _CALLCONV;
  * @return
  *   Value read from the specified address.
  */
-double stm_load_double(volatile double *addr) _CALLCONV;
+double stm_load_double(const volatile double *addr) _CALLCONV;
 
 /**
  * Transactional load of a pointer value.
@@ -194,7 +194,7 @@ double stm_load_double(volatile double *addr) _CALLCONV;
  * @return
  *   Value read from the specified address.
  */
-void *stm_load_ptr(volatile void **addr) _CALLCONV;
+void *stm_load_ptr(const volatile void **addr) _CALLCONV;
 
 /**
  * Transactional load of a memory region.  The address of the region
@@ -209,7 +209,7 @@ void *stm_load_ptr(volatile void **addr) _CALLCONV;
  * @param size
  *   Number of bytes to read.
  */
-void stm_load_bytes(volatile uint8_t *addr, uint8_t *buf, size_t size) _CALLCONV;
+void stm_load_bytes(const volatile uint8_t *addr, uint8_t *buf, size_t size) _CALLCONV;
 
 /**
  * Transactional store of an unsigned 8-bit value.
@@ -339,7 +339,7 @@ void stm_store_ulong(volatile unsigned long *addr, unsigned long value) _CALLCON
  * @param value
  *   Value to be written.
  */
-void stm_store_float(volatile float *addr, float value) _CALLCONV;
+void stm_store_float(volatile float *addr, const float value) _CALLCONV;
 
 /**
  * Transactional store of a double value.
@@ -359,7 +359,7 @@ void stm_store_double(volatile double *addr, double value) _CALLCONV;
  * @param value
  *   Value to be written.
  */
-void stm_store_ptr(volatile void **addr, void *value) _CALLCONV;
+void stm_store_ptr(volatile void **addr, const void *value) _CALLCONV;
 
 /**
  * Transactional store of a memory region.  The address of the region

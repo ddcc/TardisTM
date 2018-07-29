@@ -357,14 +357,14 @@ stm_abort_tx(stm_tx_t *tx, stm_tx_abort_t reason)
  * Called by the CURRENT thread to load a word-sized value.
  */
 _CALLCONV ALIGNED stm_word_t
-stm_load(volatile stm_word_t *addr)
+stm_load(const volatile stm_word_t *addr)
 {
   TX_GET;
   return int_stm_load(tx, addr);
 }
 
 _CALLCONV stm_word_t
-stm_load_tx(stm_tx_t *tx, volatile stm_word_t *addr)
+stm_load_tx(stm_tx_t *tx, const volatile stm_word_t *addr)
 {
   return int_stm_load(tx, addr);
 }
@@ -373,14 +373,14 @@ stm_load_tx(stm_tx_t *tx, volatile stm_word_t *addr)
  * Called by the CURRENT thread to store a word-sized value.
  */
 _CALLCONV ALIGNED void
-stm_store(volatile stm_word_t *addr, stm_word_t value)
+stm_store(volatile stm_word_t *addr, const stm_word_t value)
 {
   TX_GET;
   int_stm_store(tx, addr, value);
 }
 
 _CALLCONV void
-stm_store_tx(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value)
+stm_store_tx(stm_tx_t *tx, volatile stm_word_t *addr, const stm_word_t value)
 {
   int_stm_store(tx, addr, value);
 }
@@ -389,14 +389,14 @@ stm_store_tx(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value)
  * Called by the CURRENT thread to store part of a word-sized value.
  */
 _CALLCONV ALIGNED void
-stm_store2(volatile stm_word_t *addr, stm_word_t value, stm_word_t mask)
+stm_store2(volatile stm_word_t *addr, const stm_word_t value, const stm_word_t mask)
 {
   TX_GET;
   int_stm_store2(tx, addr, value, mask);
 }
 
 _CALLCONV void
-stm_store2_tx(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_word_t mask)
+stm_store2_tx(stm_tx_t *tx, volatile stm_word_t *addr, const stm_word_t value, const stm_word_t mask)
 {
   int_stm_store2(tx, addr, value, mask);
 }
@@ -412,7 +412,7 @@ stm_active(void)
 }
 
 _CALLCONV int
-stm_active_tx(stm_tx_t *tx)
+stm_active_tx(const stm_tx_t *tx)
 {
   return int_stm_active(tx);
 }
@@ -428,7 +428,7 @@ stm_aborted(void)
 }
 
 _CALLCONV int
-stm_aborted_tx(stm_tx_t *tx)
+stm_aborted_tx(const stm_tx_t *tx)
 {
   return int_stm_aborted(tx);
 }
@@ -444,7 +444,7 @@ stm_irrevocable(void)
 }
 
 _CALLCONV int
-stm_irrevocable_tx(stm_tx_t *tx)
+stm_irrevocable_tx(const stm_tx_t *tx)
 {
   return int_stm_irrevocable(tx);
 }
@@ -460,7 +460,7 @@ stm_killed(void)
 }
 
 _CALLCONV int
-stm_killed_tx(stm_tx_t *tx)
+stm_killed_tx(const stm_tx_t *tx)
 {
   return int_stm_killed(tx);
 }
@@ -496,7 +496,7 @@ stm_get_attributes(void)
  * Get transaction attributes from a specifc transaction.
  */
 _CALLCONV stm_tx_attr_t
-stm_get_attributes_tx(struct stm_tx *tx)
+stm_get_attributes_tx(const struct stm_tx *tx)
 {
   assert (tx != NULL);
   return tx->attr;
@@ -513,7 +513,7 @@ stm_get_stats(const char *name, void *val)
 }
 
 _CALLCONV int
-stm_get_stats_tx(stm_tx_t *tx, const char *name, void *val)
+stm_get_stats_tx(const stm_tx_t *tx, const char *name, void *val)
 {
   return int_stm_get_stats(tx, name, val);
 }
@@ -598,7 +598,7 @@ stm_create_specific(void)
  * Store transaction-specific data.
  */
 _CALLCONV void
-stm_set_specific(int key, void *data)
+stm_set_specific(const int key, const void *data)
 {
   TX_GET;
   int_stm_set_specific(tx, key, data);
@@ -608,7 +608,7 @@ stm_set_specific(int key, void *data)
  * Store transaction-specific data to a specifc transaction.
  */
 _CALLCONV void
-stm_set_specific_tx(stm_tx_t *tx, int key, void *data)
+stm_set_specific_tx(stm_tx_t *tx, const int key, const void *data)
 {
   int_stm_set_specific(tx, key, data);
 }
@@ -618,7 +618,7 @@ stm_set_specific_tx(stm_tx_t *tx, int key, void *data)
  * Fetch transaction-specific data.
  */
 _CALLCONV void *
-stm_get_specific(int key)
+stm_get_specific(const int key)
 {
   TX_GET;
   return int_stm_get_specific(tx, key);
@@ -628,7 +628,7 @@ stm_get_specific(int key)
  * Fetch transaction-specific data from a specific transaction.
  */
 _CALLCONV void *
-stm_get_specific_tx(stm_tx_t *tx, int key)
+stm_get_specific_tx(const stm_tx_t *tx, const int key)
 {
   return int_stm_get_specific(tx, key);
 }
@@ -637,13 +637,13 @@ stm_get_specific_tx(stm_tx_t *tx, int key)
  * Register callbacks for an external module (must be called before creating transactions).
  */
 _CALLCONV int
-stm_register(const void (*on_thread_init)(struct stm_tx *tx, const void *arg),
-             const void (*on_thread_exit)(const struct stm_tx *tx, const void *arg),
-             const void (*on_start)(const struct stm_tx *tx, const void *arg),
-             const void (*on_precommit)(const struct stm_tx *tx, const void *arg),
-             const void (*on_commit)(const struct stm_tx *tx, const void *arg),
-             const void (*on_abort)(const struct stm_tx *tx, const stm_tx_abort_t reason, const void *arg),
-             const void *arg)
+stm_register(void (* const on_thread_init)(struct stm_tx *tx, const void *arg),
+             void (* const on_thread_exit)(const struct stm_tx *tx, const void *arg),
+             void (* const on_start)(const struct stm_tx *tx, const void *arg),
+             void (* const on_precommit)(const struct stm_tx *tx, const void *arg),
+             void (* const on_commit)(const struct stm_tx *tx, const void *arg),
+             void (* const on_abort)(const struct stm_tx *tx, const stm_tx_abort_t reason, const void *arg),
+             void *arg)
 {
   if ((on_thread_init != NULL && _tinystm.nb_init_cb >= MAX_CB) ||
       (on_thread_exit != NULL && _tinystm.nb_exit_cb >= MAX_CB) ||
@@ -838,7 +838,7 @@ stm_set_extension_tx(stm_tx_t *tx, int enable, stm_word_t *timestamp)
 /*
  * Get curent value of global clock.
  */
-_CALLCONV stm_word_t
+_CALLCONV const stm_word_t
 stm_get_clock(void)
 {
   return GET_CLOCK;
@@ -862,7 +862,7 @@ stm_current_tx(void)
  * Get thread identifier of other transaction.
  */
 _CALLCONV int
-stm_get_thread_id(stm_tx_t *tx, pthread_t *id)
+stm_get_thread_id(const stm_tx_t *tx, pthread_t *id)
 {
   *id = tx->thread_id;
   return 1;

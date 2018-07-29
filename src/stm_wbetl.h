@@ -181,7 +181,7 @@ stm_wbetl_rollback(stm_tx_t *tx)
  * Load a word-sized value (invisible read).
  */
 static INLINE stm_word_t
-stm_wbetl_read_invisible(stm_tx_t *tx, volatile stm_word_t *addr)
+stm_wbetl_read_invisible(stm_tx_t *tx, const volatile stm_word_t *addr)
 {
   const stm_lock_t *lock;
   stm_version_t l, l2;
@@ -421,7 +421,7 @@ add_to_read_set:
  * Load a word-sized value (visible read).
  */
 static INLINE stm_word_t
-stm_wbetl_read_visible(stm_tx_t *tx, volatile stm_word_t *addr)
+stm_wbetl_read_visible(stm_tx_t *tx, const volatile stm_word_t *addr)
 {
   const stm_lock_t *lock;
   stm_version_t l, l2;
@@ -562,7 +562,7 @@ acquire:
 #endif /* DESIGN == WRITE_BACK_ETL_VR */
 
 static INLINE stm_word_t
-stm_wbetl_read(stm_tx_t *tx, volatile stm_word_t *addr)
+stm_wbetl_read(stm_tx_t *tx, const volatile stm_word_t *addr)
 {
 #if DESIGN == WRITE_BACK_ETL_VR
   if (unlikely((tx->attr.visible_reads))) {

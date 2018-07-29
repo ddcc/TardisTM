@@ -171,7 +171,7 @@ stm_wbctl_rollback(stm_tx_t *tx)
 }
 
 static INLINE stm_word_t
-stm_wbctl_read(stm_tx_t *tx, volatile stm_word_t *addr)
+stm_wbctl_read(stm_tx_t *tx, const volatile stm_word_t *addr
 {
   const stm_lock_t *lock;
   stm_version_t l, l2;
@@ -259,7 +259,7 @@ stm_wbctl_read(stm_tx_t *tx, volatile stm_word_t *addr)
 }
 
 static INLINE w_entry_t *
-stm_wbctl_write(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_word_t mask)
+stm_wbctl_write(stm_tx_t *tx, volatile stm_word_t *addr, const stm_word_t value, const stm_word_t mask)
 {
   const stm_lock_t *lock;
   stm_version_t l;
@@ -368,35 +368,35 @@ do_write:
 }
 
 static INLINE stm_word_t
-stm_wbctl_RaR(stm_tx_t *tx, volatile stm_word_t *addr)
+stm_wbctl_RaR(stm_tx_t *tx, const volatile stm_word_t *addr)
 {
   /* Possible optimization: avoid adding to read set. */
   return stm_wbctl_read(tx, addr);
 }
 
 static INLINE stm_word_t
-stm_wbctl_RaW(stm_tx_t *tx, volatile stm_word_t *addr)
+stm_wbctl_RaW(stm_tx_t *tx, const volatile stm_word_t *addr)
 {
   /* Cannot be much better than regular due to mask == 0 case. */
   return stm_wbctl_read(tx, addr);
 }
 
 static INLINE stm_word_t
-stm_wbctl_RfW(stm_tx_t *tx, volatile stm_word_t *addr)
+stm_wbctl_RfW(stm_tx_t *tx, const volatile stm_word_t *addr)
 {
   /* We need to return the value here, so write with mask=0 is not enough. */
   return stm_wbctl_read(tx, addr);
 }
 
 static INLINE void
-stm_wbctl_WaR(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_word_t mask)
+stm_wbctl_WaR(stm_tx_t *tx, volatile stm_word_t *addr, const stm_word_t value, const stm_word_t mask)
 {
   /* Probably no optimization can be done here. */
   stm_wbctl_write(tx, addr, value, mask);
 }
 
 static INLINE void
-stm_wbctl_WaW(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_word_t mask)
+stm_wbctl_WaW(stm_tx_t *tx, const volatile stm_word_t *addr, const stm_word_t value, const stm_word_t mask)
 {
   w_entry_t *w;
   /* Get the write set entry. */
@@ -410,13 +410,12 @@ stm_wbctl_WaW(stm_tx_t *tx, volatile stm_word_t *addr, stm_word_t value, stm_wor
 static INLINE int
 stm_wbctl_commit(stm_tx_t *tx)
 {
-  w_entry_t *w;
   stm_version_t l;
 
   PRINT_DEBUG("==> stm_wbctl_commit(%p[%lu-%lu])\n", tx, (unsigned long)tx->start, (unsigned long)tx->end);
 
   /* Acquire locks (in reverse order) */
-  for (w = tx->w_set.entries + tx->w_set.nb_entries - 1; w >= tx->w_set.entries; --w) {
+  for (w_entry_t *w = tx->w_set.entries + tx->w_set.nb_entries - 1; w >= tx->w_set.entries; --w) {
     assert(WRITE_POINTER_VALID(tx, w));
     /* Try to acquire lock */
 restart:
@@ -515,7 +514,7 @@ release_locks:
 #endif /* IRREVOCABLE_ENABLED */
 
   /* Install new versions, drop locks and set new timestamp */
-  for (w = tx->w_set.entries; w < tx->w_set.entries + tx->w_set.nb_entries; ++w) {
+  for (const w_entry_t *w = tx->w_set.entries; w < tx->w_set.entries + tx->w_set.nb_entries; ++w) {
     assert(WRITE_POINTER_VALID(tx, w));
     if (w->mask == ~(stm_word_t)0) {
       ATOMIC_STORE(w->addr, w->value);

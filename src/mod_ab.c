@@ -123,7 +123,7 @@ static void sc_init(smart_counter_t *c)
 /*
  * Add sample in smart counter.
  */
-static void sc_add_sample(smart_counter_t *c, double n, unsigned short *seed)
+static void sc_add_sample(smart_counter_t *c, const double n, unsigned short *seed)
 {
   double prev, prob;
 
@@ -157,7 +157,7 @@ static void sc_add_sample(smart_counter_t *c, double n, unsigned short *seed)
 /*
  * Get number of samples of smart counter.
  */
-static unsigned long sc_samples(smart_counter_t *c)
+static unsigned long sc_samples(const smart_counter_t *c)
 {
   return c->samples;
 }
@@ -165,7 +165,7 @@ static unsigned long sc_samples(smart_counter_t *c)
 /*
  * Get mean of smart counter.
  */
-static double sc_mean(smart_counter_t *c)
+static double sc_mean(const smart_counter_t *c)
 {
   return c->mean;
 }
@@ -173,7 +173,7 @@ static double sc_mean(smart_counter_t *c)
 /*
  * Get variance of smart counter.
  */
-static double sc_variance(smart_counter_t *c)
+static double sc_variance(const smart_counter_t *c)
 {
   if(c->samples <= 1)
     return 0.0;
@@ -183,7 +183,7 @@ static double sc_variance(smart_counter_t *c)
 /*
  * Get min of smart counter.
  */
-static double sc_min(smart_counter_t *c)
+static double sc_min(const smart_counter_t *c)
 {
   return c->min;
 }
@@ -191,7 +191,7 @@ static double sc_min(smart_counter_t *c)
 /*
  * Get max of smart counter.
  */
-static double sc_max(smart_counter_t *c)
+static double sc_max(const smart_counter_t *c)
 {
   return c->max;
 }
@@ -199,7 +199,7 @@ static double sc_max(smart_counter_t *c)
 /*
  * Get specific percentile.
  */
-static double sc_percentile(smart_counter_t *c, int percentile)
+static double sc_percentile(smart_counter_t *c, const int percentile)
 {
   int length, i;
 
@@ -384,7 +384,7 @@ static void mod_ab_on_abort(const struct stm_tx *tx, const stm_tx_abort_t reason
 /*
  * Return statistics about atomic block.
  */
-int stm_get_ab_stats(int id, stm_ab_stats_t *stats)
+int stm_get_ab_stats(const int id, stm_ab_stats_t *stats)
 {
   int bucket, result;
   ab_stats_t *ab;
@@ -419,7 +419,7 @@ int stm_get_ab_stats(int id, stm_ab_stats_t *stats)
 /*
  * Initialize module.
  */
-void mod_ab_init(int freq, int (*check)(void))
+void mod_ab_init(const int freq, int (*const check)(void))
 {
   int i;
   char *s;

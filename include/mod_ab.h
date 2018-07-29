@@ -103,7 +103,7 @@ typedef struct stm_ab_stats {
  * @return
  *   1 upon success, 0 otherwise.
  */
-int stm_get_ab_stats(int id, stm_ab_stats_t *stats);
+int stm_get_ab_stats(const int id, stm_ab_stats_t *stats);
 
 /**
  * Initialize the module.  This function must be called once, from the
@@ -118,7 +118,7 @@ int stm_get_ab_stats(int id, stm_ab_stats_t *stats);
  *   if the function returns 0.  If no function is provided, all samples
  *   will be kept.
  */
-void mod_ab_init(int freq, int (*check)(void));
+void mod_ab_init(const int freq, int (* const check)(void));
 
 # ifdef __cplusplus
 }

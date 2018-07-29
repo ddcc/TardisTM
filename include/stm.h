@@ -427,8 +427,8 @@ void stm_abort_tx(struct stm_tx *tx, stm_tx_abort_t abort_reason) _CALLCONV;
  * @return
  *   Value read from the specified address.
  */
-stm_word_t stm_load(volatile stm_word_t *addr) _CALLCONV;
-stm_word_t stm_load_tx(struct stm_tx *tx, volatile stm_word_t *addr) _CALLCONV;
+stm_word_t stm_load(const volatile stm_word_t *addr) _CALLCONV;
+stm_word_t stm_load_tx(struct stm_tx *tx, const volatile stm_word_t *addr) _CALLCONV;
 //@}
 
 //@{
@@ -443,8 +443,8 @@ stm_word_t stm_load_tx(struct stm_tx *tx, volatile stm_word_t *addr) _CALLCONV;
  * @param value
  *   Value to be written.
  */
-void stm_store(volatile stm_word_t *addr, stm_word_t value) _CALLCONV;
-void stm_store_tx(struct stm_tx *tx, volatile stm_word_t *addr, stm_word_t value) _CALLCONV;
+void stm_store(volatile stm_word_t *addr, const stm_word_t value) _CALLCONV;
+void stm_store_tx(struct stm_tx *tx, volatile stm_word_t *addr, const stm_word_t value) _CALLCONV;
 //@}
 
 //@{
@@ -475,7 +475,7 @@ void stm_store2_tx(struct stm_tx *tx, volatile stm_word_t *addr, stm_word_t valu
  *   True (non-zero) if the transaction is active, false (zero) otherwise.
  */
 int stm_active(void) _CALLCONV;
-int stm_active_tx(struct stm_tx *tx) _CALLCONV;
+int stm_active_tx(const struct stm_tx *tx) _CALLCONV;
 //@}
 
 //@{
@@ -486,7 +486,7 @@ int stm_active_tx(struct stm_tx *tx) _CALLCONV;
  *   True (non-zero) if the transaction has aborted, false (zero) otherwise.
  */
 int stm_aborted(void) _CALLCONV;
-int stm_aborted_tx(struct stm_tx *tx) _CALLCONV;
+int stm_aborted_tx(const struct stm_tx *tx) _CALLCONV;
 //@}
 
 //@{
@@ -499,7 +499,7 @@ int stm_aborted_tx(struct stm_tx *tx) _CALLCONV;
  *   (zero) otherwise.
  */
 int stm_irrevocable(void) _CALLCONV;
-int stm_irrevocable_tx(struct stm_tx *tx) _CALLCONV;
+int stm_irrevocable_tx(const struct stm_tx *tx) _CALLCONV;
 //@}
 
 //@{
@@ -510,7 +510,7 @@ int stm_irrevocable_tx(struct stm_tx *tx) _CALLCONV;
  *   True (non-zero) if the transaction has been killed, false (zero) otherwise.
  */
 int stm_killed(void) _CALLCONV;
-int stm_killed_tx(struct stm_tx *tx) _CALLCONV;
+int stm_killed_tx(const struct stm_tx *tx) _CALLCONV;
 //@}
 
 //@{
@@ -540,7 +540,7 @@ sigjmp_buf *stm_get_env_tx(struct stm_tx *tx) _CALLCONV;
  *   if no attributes were specified when starting the transaction.
  */
 stm_tx_attr_t stm_get_attributes(void) _CALLCONV;
-stm_tx_attr_t stm_get_attributes_tx(struct stm_tx *tx) _CALLCONV;
+stm_tx_attr_t stm_get_attributes_tx(const struct stm_tx *tx) _CALLCONV;
 //@}
 
 //@{
@@ -557,7 +557,7 @@ stm_tx_attr_t stm_get_attributes_tx(struct stm_tx *tx) _CALLCONV;
  *   1 upon success, 0 otherwise.
  */
 int stm_get_stats(const char *name, void *val) _CALLCONV;
-int stm_get_stats_tx(struct stm_tx *tx, const char *name, void *val) _CALLCONV;
+int stm_get_stats_tx(const struct stm_tx *tx, const char *name, void *val) _CALLCONV;
 //@}
 
 /**
@@ -607,8 +607,8 @@ int stm_create_specific(void) _CALLCONV;
  * @return
  *   Data stored under the given key.
  */
-void *stm_get_specific(int key) _CALLCONV;
-void *stm_get_specific_tx(struct stm_tx *tx, int key) _CALLCONV;
+void *stm_get_specific(const int key) _CALLCONV;
+void *stm_get_specific_tx(const struct stm_tx *tx, const int key) _CALLCONV;
 //@}
 
 //@{
@@ -621,8 +621,8 @@ void *stm_get_specific_tx(struct stm_tx *tx, int key) _CALLCONV;
  * @param data
  *   Data to store under the given key.
  */
-void stm_set_specific(int key, void *data) _CALLCONV;
-void stm_set_specific_tx(struct stm_tx *tx, int key, void *data) _CALLCONV;
+void stm_set_specific(int key, const void *data) _CALLCONV;
+void stm_set_specific_tx(struct stm_tx *tx, const int key, const void *data) _CALLCONV;
 //@}
 
 /**
@@ -646,13 +646,13 @@ void stm_set_specific_tx(struct stm_tx *tx, int key, void *data) _CALLCONV;
  * @return
  *   1 if the callbacks have been successfully registered, 0 otherwise.
  */
-int stm_register(const void (*on_thread_init)(struct stm_tx *tx, const void *arg),
-                 const void (*on_thread_exit)(const struct stm_tx *tx, const void *arg),
-                 const void (*on_start)(const struct stm_tx *tx, const void *arg),
-                 const void (*on_precommit)(const struct stm_tx *tx, const void *arg),
-                 const void (*on_commit)(const struct stm_tx *tx, const void *arg),
-                 const void (*on_abort)(const struct stm_tx *tx, const stm_tx_abort_t reason, const void *arg),
-                 const void *arg) _CALLCONV;
+int stm_register(void (* const on_thread_init)(struct stm_tx *tx, const void *arg),
+                 void (* const on_thread_exit)(const struct stm_tx *tx, const void *arg),
+                 void (* const on_start)(const struct stm_tx *tx, const void *arg),
+                 void (* const on_precommit)(const struct stm_tx *tx, const void *arg),
+                 void (* const on_commit)(const struct stm_tx *tx, const void *arg),
+                 void (* const on_abort)(const struct stm_tx *tx, const stm_tx_abort_t reason, const void *arg),
+                 void *arg) _CALLCONV;
 
 /**
  * Transaction-safe load.  Read the specified memory location outside of
@@ -746,7 +746,7 @@ void stm_set_extension_tx(struct stm_tx *tx, int enable, stm_word_t *timestamp) 
  * @return
  *   Value of the global clock.
  */
-stm_word_t stm_get_clock(void) _CALLCONV;
+const stm_word_t stm_get_clock(void) _CALLCONV;
 
 //@{
 /**

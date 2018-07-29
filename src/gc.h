@@ -35,15 +35,15 @@ extern "C" {
 
 typedef uintptr_t gc_word_t;
 
-void gc_init(gc_word_t (*epoch)(void));
+void gc_init(const gc_word_t (*epoch)(void));
 void gc_exit(void);
 
 void gc_init_thread(void);
 void gc_exit_thread(void);
 
-void gc_set_epoch(gc_word_t epoch);
+void gc_set_epoch(const gc_word_t epoch);
 
-void gc_free(const void *addr, gc_word_t epoch);
+void gc_free(const void *addr, const gc_word_t epoch);
 
 void gc_cleanup(void);
 

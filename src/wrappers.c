@@ -85,21 +85,21 @@ static void sanity_checks(void)
  * ################################################################### */
 
 static INLINE
-uint8_t int_stm_load_u8(volatile uint8_t *addr)
+uint8_t int_stm_load_u8(const volatile uint8_t *addr)
 {
   if (sizeof(stm_word_t) == 4) {
     convert_32_t val;
-    val.u32 = (uint32_t)TM_LOAD((volatile stm_word_t *)((uintptr_t)addr & ~(uintptr_t)0x03));
+    val.u32 = (uint32_t)TM_LOAD((const volatile stm_word_t *)((uintptr_t)addr & ~(uintptr_t)0x03));
     return val.u8[(uintptr_t)addr & 0x03];
   } else {
     convert_64_t val;
-    val.u64 = (uint64_t)TM_LOAD((volatile stm_word_t *)((uintptr_t)addr & ~(uintptr_t)0x07));
+    val.u64 = (uint64_t)TM_LOAD((const volatile stm_word_t *)((uintptr_t)addr & ~(uintptr_t)0x07));
     return val.u8[(uintptr_t)addr & 0x07];
   }
 }
 
 static INLINE
-uint16_t int_stm_load_u16(volatile uint16_t *addr)
+uint16_t int_stm_load_u16(const volatile uint16_t *addr)
 {
   if (unlikely(((uintptr_t)addr & 0x01) != 0)) {
     uint16_t val;
@@ -107,33 +107,33 @@ uint16_t int_stm_load_u16(volatile uint16_t *addr)
     return val;
   } else if (sizeof(stm_word_t) == 4) {
     convert_32_t val;
-    val.u32 = (uint32_t)TM_LOAD((volatile stm_word_t *)((uintptr_t)addr & ~(uintptr_t)0x03));
+    val.u32 = (uint32_t)TM_LOAD((const volatile stm_word_t *)((uintptr_t)addr & ~(uintptr_t)0x03));
     return val.u16[((uintptr_t)addr & 0x03) >> 1];
   } else {
     convert_64_t val;
-    val.u64 = (uint64_t)TM_LOAD((volatile stm_word_t *)((uintptr_t)addr & ~(uintptr_t)0x07));
+    val.u64 = (uint64_t)TM_LOAD((const volatile stm_word_t *)((uintptr_t)addr & ~(uintptr_t)0x07));
     return val.u16[((uintptr_t)addr & 0x07) >> 1];
   }
 }
 
 static INLINE
-uint32_t int_stm_load_u32(volatile uint32_t *addr)
+uint32_t int_stm_load_u32(const volatile uint32_t *addr)
 {
   if (unlikely(((uintptr_t)addr & 0x03) != 0)) {
     uint32_t val;
-    stm_load_bytes((volatile uint8_t *)addr, (uint8_t *)&val, sizeof(uint32_t));
+    stm_load_bytes((const volatile uint8_t *)addr, (uint8_t *)&val, sizeof(uint32_t));
     return val;
   } else if (sizeof(stm_word_t) == 4) {
-    return (uint32_t)TM_LOAD((volatile stm_word_t *)addr);
+    return (uint32_t)TM_LOAD((const volatile stm_word_t *)addr);
   } else {
     convert_64_t val;
-    val.u64 = (uint64_t)TM_LOAD((volatile stm_word_t *)((uintptr_t)addr & ~(uintptr_t)0x07));
+    val.u64 = (uint64_t)TM_LOAD((const volatile stm_word_t *)((uintptr_t)addr & ~(uintptr_t)0x07));
     return val.u32[((uintptr_t)addr & 0x07) >> 2];
   }
 }
 
 static INLINE
-uint64_t int_stm_load_u64(volatile uint64_t *addr)
+uint64_t int_stm_load_u64(const volatile uint64_t *addr)
 {
   if (unlikely(((uintptr_t)addr & 0x07) != 0)) {
     uint64_t val;
@@ -141,11 +141,11 @@ uint64_t int_stm_load_u64(volatile uint64_t *addr)
     return val;
   } else if (sizeof(stm_word_t) == 4) {
     convert_64_t val;
-    val.u32[0] = (uint32_t)TM_LOAD((volatile stm_word_t *)addr);
-    val.u32[1] = (uint32_t)TM_LOAD((volatile stm_word_t *)addr + 1);
+    val.u32[0] = (uint32_t)TM_LOAD((const volatile stm_word_t *)addr);
+    val.u32[1] = (uint32_t)TM_LOAD((const volatile stm_word_t *)addr + 1);
     return val.u64;
   } else {
-    return (uint64_t)TM_LOAD((volatile stm_word_t *)addr);
+    return (uint64_t)TM_LOAD((const volatile stm_word_t *)addr);
   }
 }
 
@@ -153,122 +153,122 @@ uint64_t int_stm_load_u64(volatile uint64_t *addr)
  * LOADS
  * ################################################################### */
 
-_CALLCONV uint8_t stm_load_u8(volatile uint8_t *addr)
+_CALLCONV uint8_t stm_load_u8(const volatile uint8_t *addr)
 {
   return int_stm_load_u8(addr);
 }
 
-_CALLCONV uint16_t stm_load_u16(volatile uint16_t *addr)
+_CALLCONV uint16_t stm_load_u16(const volatile uint16_t *addr)
 {
   return int_stm_load_u16(addr);
 }
 
-_CALLCONV uint32_t stm_load_u32(volatile uint32_t *addr)
+_CALLCONV uint32_t stm_load_u32(const volatile uint32_t *addr)
 {
   return int_stm_load_u32(addr);
 }
 
-_CALLCONV uint64_t stm_load_u64(volatile uint64_t *addr)
+_CALLCONV uint64_t stm_load_u64(const volatile uint64_t *addr)
 {
   return int_stm_load_u64(addr);
 }
 
-_CALLCONV char stm_load_char(volatile char *addr)
+_CALLCONV char stm_load_char(const volatile char *addr)
 {
   convert_8_t val;
-  val.u8 = int_stm_load_u8((volatile uint8_t *)addr);
+  val.u8 = int_stm_load_u8((const volatile uint8_t *)addr);
   return val.s8;
 }
 
-_CALLCONV unsigned char stm_load_uchar(volatile unsigned char *addr)
+_CALLCONV unsigned char stm_load_uchar(const volatile unsigned char *addr)
 {
-  return (unsigned char)int_stm_load_u8((volatile uint8_t *)addr);
+  return (unsigned char)int_stm_load_u8((const volatile uint8_t *)addr);
 }
 
-_CALLCONV short stm_load_short(volatile short *addr)
+_CALLCONV short stm_load_short(const volatile short *addr)
 {
   convert_16_t val;
-  val.u16 = int_stm_load_u16((volatile uint16_t *)addr);
+  val.u16 = int_stm_load_u16((const volatile uint16_t *)addr);
   return val.s16;
 }
 
-_CALLCONV unsigned short stm_load_ushort(volatile unsigned short *addr)
+_CALLCONV unsigned short stm_load_ushort(const volatile unsigned short *addr)
 {
-  return (unsigned short)int_stm_load_u16((volatile uint16_t *)addr);
+  return (unsigned short)int_stm_load_u16((const volatile uint16_t *)addr);
 }
 
-_CALLCONV int stm_load_int(volatile int *addr)
+_CALLCONV int stm_load_int(const volatile int *addr)
 {
   convert_32_t val;
-  val.u32 = int_stm_load_u32((volatile uint32_t *)addr);
+  val.u32 = int_stm_load_u32((const volatile uint32_t *)addr);
   return val.s32;
 }
 
-_CALLCONV unsigned int stm_load_uint(volatile unsigned int *addr)
+_CALLCONV unsigned int stm_load_uint(const volatile unsigned int *addr)
 {
-  return (unsigned int)int_stm_load_u32((volatile uint32_t *)addr);
+  return (unsigned int)int_stm_load_u32((const volatile uint32_t *)addr);
 }
 
-_CALLCONV long stm_load_long(volatile long *addr)
+_CALLCONV long stm_load_long(const volatile long *addr)
 {
   if (sizeof(long) == 4) {
     convert_32_t val;
-    val.u32 = int_stm_load_u32((volatile uint32_t *)addr);
+    val.u32 = int_stm_load_u32((const volatile uint32_t *)addr);
     return val.s32;
   } else {
     convert_64_t val;
-    val.u64 = int_stm_load_u64((volatile uint64_t *)addr);
+    val.u64 = int_stm_load_u64((const volatile uint64_t *)addr);
     return val.s64;
   }
 }
 
-_CALLCONV unsigned long stm_load_ulong(volatile unsigned long *addr)
+_CALLCONV unsigned long stm_load_ulong(const volatile unsigned long *addr)
 {
   if (sizeof(long) == 4) {
-    return (unsigned long)int_stm_load_u32((volatile uint32_t *)addr);
+    return (unsigned long)int_stm_load_u32((const volatile uint32_t *)addr);
   } else {
-    return (unsigned long)int_stm_load_u64((volatile uint64_t *)addr);
+    return (unsigned long)int_stm_load_u64((const volatile uint64_t *)addr);
   }
 }
 
-_CALLCONV float stm_load_float(volatile float *addr)
+_CALLCONV float stm_load_float(const volatile float *addr)
 {
   convert_32_t val;
-  val.u32 = int_stm_load_u32((volatile uint32_t *)addr);
+  val.u32 = int_stm_load_u32((const volatile uint32_t *)addr);
   return val.f;
 }
 
-_CALLCONV double stm_load_double(volatile double *addr)
+_CALLCONV double stm_load_double(const volatile double *addr)
 {
   convert_64_t val;
-  val.u64 = int_stm_load_u64((volatile uint64_t *)addr);
+  val.u64 = int_stm_load_u64((const volatile uint64_t *)addr);
   return val.d;
 }
 
-_CALLCONV void *stm_load_ptr(volatile void **addr)
+_CALLCONV void *stm_load_ptr(const volatile void **addr)
 {
   union { stm_word_t w; void *v; } convert;
   convert.w = TM_LOAD((stm_word_t *)addr);
   return convert.v;
 }
 
-_CALLCONV void stm_load_bytes(volatile uint8_t *addr, uint8_t *buf, size_t size)
+_CALLCONV void stm_load_bytes(const volatile uint8_t *addr, uint8_t *buf, size_t size)
 {
   convert_t val;
   unsigned int i;
-  stm_word_t *a;
+  const volatile stm_word_t *a;
 
   if (size == 0)
     return;
   i = (uintptr_t)addr & (sizeof(stm_word_t) - 1);
   if (i != 0) {
     /* First bytes */
-    a = (stm_word_t *)((uintptr_t)addr & ~(uintptr_t)(sizeof(stm_word_t) - 1));
+    a = (const volatile stm_word_t *)((uintptr_t)addr & ~(uintptr_t)(sizeof(stm_word_t) - 1));
     val.w = TM_LOAD(a++);
     for (; i < sizeof(stm_word_t) && size > 0; i++, size--)
       *buf++ = val.b[i];
   } else
-    a = (stm_word_t *)addr;
+    a = (const volatile stm_word_t *)addr;
   /* Full words */
   while (size >= sizeof(stm_word_t)) {
 #ifdef ALLOW_MISALIGNED_ACCESSES
@@ -445,7 +445,7 @@ _CALLCONV void stm_store_ulong(volatile unsigned long *addr, unsigned long value
   }
 }
 
-_CALLCONV void stm_store_float(volatile float *addr, float value)
+_CALLCONV void stm_store_float(volatile float *addr, const float value)
 {
   convert_32_t val;
   val.f = value;
@@ -459,11 +459,11 @@ _CALLCONV void stm_store_double(volatile double *addr, double value)
   int_stm_store_u64((volatile uint64_t *)addr, val.u64);
 }
 
-_CALLCONV void stm_store_ptr(volatile void **addr, void *value)
+_CALLCONV void stm_store_ptr(volatile void **addr, const void *value)
 {
-  union { stm_word_t w; void *v; } convert;
+  union { const stm_word_t w; const void *v; } convert;
   convert.v = value;
-  TM_STORE((stm_word_t *)addr, convert.w);
+  TM_STORE((volatile stm_word_t *)addr, convert.w);
 }
 
 _CALLCONV void stm_store_bytes(volatile uint8_t *addr, uint8_t *buf, size_t size)
