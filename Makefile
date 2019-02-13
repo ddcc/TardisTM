@@ -39,8 +39,8 @@ include Makefile.common
 # Refer to [PPoPP-08] for more details.
 ########################################################################
 
-DEFINES += -DDESIGN=WRITE_BACK_ETL
-# DEFINES += -DDESIGN=WRITE_BACK_CTL
+# DEFINES += -DDESIGN=WRITE_BACK_ETL
+DEFINES += -DDESIGN=WRITE_BACK_CTL
 # DEFINES += -DDESIGN=WRITE_THROUGH
 # DEFINES += -DDESIGN=MODULAR
 
@@ -134,8 +134,8 @@ DEFINES += -UUSE_BLOOM_FILTER
 # enabling this feature.
 ########################################################################
 
-# DEFINES += -DEPOCH_GC
-DEFINES += -UEPOCH_GC
+DEFINES += -DEPOCH_GC
+# DEFINES += -UEPOCH_GC
 
 ########################################################################
 # Keep track of conflicts between transactions and notifies the
