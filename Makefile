@@ -94,10 +94,10 @@ DEFINES += -DIRREVOCABLE_ENABLED
 # from disabling them.
 ########################################################################
 
-# DEFINES += -DTM_STATISTICS
-DEFINES += -UTM_STATISTICS
-# DEFINES += -DTM_STATISTICS2
-DEFINES += -UTM_STATISTICS2
+DEFINES += -DTM_STATISTICS
+# DEFINES += -UTM_STATISTICS
+DEFINES += -DTM_STATISTICS2
+# DEFINES += -UTM_STATISTICS2
 
 ########################################################################
 # Prevent duplicate entries in read/write sets when accessing the same

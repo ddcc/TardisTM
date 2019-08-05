@@ -1289,16 +1289,6 @@ int_stm_exit_thread(stm_tx_t *tx)
       _tinystm.exit_cb[cb].f(_tinystm.exit_cb[cb].arg);
   }
 
-#ifdef TM_STATISTICS
-  /* Display statistics before to lose it */
-  if (getenv("TM_STATISTICS") != NULL) {
-    double avg_aborts = .0;
-    if (tx->stat_commits)
-      avg_aborts = (double)tx->stat_aborts / tx->stat_commits;
-    printf("Thread %p | commits:%12u avg_aborts:%12.2f max_retries:%12u\n", (void *)pthread_self(), tx->stat_commits, avg_aborts, tx->stat_retries_max);
-  }
-#endif /* TM_STATISTICS */
-
   stm_quiesce_exit_thread(tx);
 
 #ifdef EPOCH_GC

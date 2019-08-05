@@ -33,6 +33,7 @@
 
 #include "stm.h"
 #include "stm_internal.h"
+#include "mod_stats.h"
 
 #include "utils.h"
 #include "atomic.h"
@@ -273,6 +274,11 @@ stm_init(void)
 
   tls_init();
 
+#ifdef TM_STATISTICS
+  if (getenv("TM_STATISTICS") != NULL)
+    mod_stats_init();
+#endif /* TM_STATISTICS */
+
 #ifdef SIGNAL_HANDLER
   if (getenv(NO_SIGNAL_HANDLER) == NULL) {
     /* Catch signals for non-faulting load */
@@ -301,6 +307,19 @@ stm_exit(void)
 
   tls_exit();
   stm_quiesce_exit();
+
+#ifdef TM_STATISTICS
+  /* Display statistics before to lose it */
+  if (getenv("TM_STATISTICS") != NULL) {
+    unsigned long u;
+    if (stm_get_global_stats("global_nb_commits", &u) != 0)
+      printf("Commits: %lu\n", u);
+    if (stm_get_global_stats("global_nb_aborts", &u) != 0)
+      printf("Aborts: %lu\n", u);
+    if (stm_get_global_stats("global_max_retries", &u) != 0)
+      printf("Max Retries: %lu\n", u);
+  }
+#endif /* TM_STATISTICS */
 
 #ifdef EPOCH_GC
   gc_exit();
