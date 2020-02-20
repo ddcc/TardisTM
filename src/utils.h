@@ -27,7 +27,9 @@
 #define _UTILS_H_
 
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
+#include <x86intrin.h>
 
 #define COMPILE_TIME_ASSERT(pred)       switch (0) { case 0: case pred: ; }
 
@@ -141,6 +143,26 @@ xmalloc_aligned(size_t size)
   }
   return memptr;
 }
+
+/*
+ * Returns a time measurement (clock ticks for x86).
+ */
+static inline uint64_t get_time(void) {
+#if defined(__x86_64__) || defined(__amd64__) || defined(__i386__)
+  // uint32_t lo, hi;
+  // __asm__ __volatile__ ("rdtsc" : "=a" (lo), "=d" (hi));
+  /* Note across cores the counter is not fully synchronized.
+   * The serializing instruction is rdtscp. */
+  unsigned int aux;
+  return __rdtscp(&aux);
+#else
+# error "Cannot get time measurement!"
+  // struct timeval tv;
+  // gettimeofday(&tv, NULL);
+  // return (uint64_t)(tv.tv_sec * 1000000 + tv.tv_usec);
+#endif
+}
+
 
 #endif /* !_UTILS_H_ */
 

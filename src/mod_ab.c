@@ -221,24 +221,6 @@ static double sc_percentile(smart_counter_t *c, const int percentile)
 }
 
 /*
- * Returns a time measurement (clock ticks for x86).
- */
-static inline uint64_t get_time(void) {
-#if defined(__x86_64__) || defined(__amd64__) || defined(__i386__)
-  uint32_t lo, hi;
-  /* Note across cores the counter is not fully synchronized.
-   * The serializing instruction is rdtscp. */
-  __asm__ __volatile__ ("rdtsc" : "=a" (lo), "=d" (hi));
-  /* __asm__ __volatile__("rdtscp" : "=a"(lo), "=d"(hi) :: "ecx" ); */
-  return (((uint64_t)hi) << 32) | (((uint64_t)lo) & 0xffffffff);
-#else
-  struct timeval tv;
-  gettimeofday(&tv, NULL);
-  return (uint64_t)(tv.tv_sec * 1000000 + tv.tv_usec);
-#endif
-}
-
-/*
  * Add samples to global stats.
  */
 static void sc_add_samples(samples_buffer_t *samples)

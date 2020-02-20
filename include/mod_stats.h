@@ -47,6 +47,9 @@
 extern "C" {
 # endif
 
+#define STM_COMMIT_MERGED       0xD
+#define STM_ABORT_MERGED        0xE
+
 /**
  * Get various statistics about the transactions of all threads.  See
  * the source code (mod_stats.c) for a list of supported statistics.

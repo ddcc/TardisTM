@@ -82,19 +82,16 @@ typedef struct gc_region {              /* A list of allocated memory blocks */
 } gc_region_t;
 
 typedef struct gc_thread {              /* Descriptor of an active thread */
-  union {                               /* For padding... */
-    struct {
-      gc_word_t used;                   /* Is this entry used? */
-      gc_word_t ts;                     /* Start timestamp */
-      const gc_region_t *head;          /* First memory region(s) assigned to thread */
-      gc_region_t *tail;                /* Last memory region(s) assigned to thread */
+  struct {
+    gc_word_t used;                     /* Is this entry used? */
+    gc_word_t ts;                       /* Start timestamp */
+    const gc_region_t *head;            /* First memory region(s) assigned to thread */
+    gc_region_t *tail;                  /* Last memory region(s) assigned to thread */
 #ifndef NO_PERIODIC_CLEANUP
-      unsigned int frees;               /* How many blocks have been freed? */
+    unsigned int frees;                 /* How many blocks have been freed? */
 #endif /* ! NO_PERIODIC_CLEANUP */
-    };
-    char padding[CACHELINE_SIZE];       /* Padding (should be at least a cache line) */
   };
-} gc_thread_t;
+} ALIGNED gc_thread_t;
 
 static struct {                         /* Descriptors of active threads */
   volatile gc_thread_t *slots;          /* Array of thread slots */
@@ -223,7 +220,7 @@ void gc_init(const gc_word_t (*epoch)(void) _CALLCONV)
   PRINT_DEBUG("==> gc_init()\n");
 
   gc_current_epoch = epoch;
-  gc_threads.slots = (gc_thread_t *)xmalloc(MAX_GC_THREADS * sizeof(gc_thread_t));
+  gc_threads.slots = (gc_thread_t *)xmalloc_aligned(MAX_GC_THREADS * sizeof(gc_thread_t));
   for (i = 0; i < MAX_GC_THREADS; i++) {
     gc_threads.slots[i].used = GC_NULL;
     gc_threads.slots[i].ts = EPOCH_MAX;
@@ -254,6 +251,7 @@ void gc_exit(void)
     gc_clean_regions(gc_threads.slots[i].head);
 
   xfree((void *)gc_threads.slots);
+  gc_threads.slots = NULL;
 }
 
 /*
@@ -407,16 +405,21 @@ void gc_cleanup_all(void)
   PRINT_DEBUG("==> gc_cleanup_all()\n");
 
   for (i = 0; i < MAX_GC_THREADS; i++) {
-    if ((gc_word_t)ATOMIC_LOAD(&gc_threads.slots[i].used) == GC_NULL)
+    gc_word_t gc;
+restart:
+    gc = ATOMIC_LOAD(&gc_threads.slots[i].used);
+
+    if (gc == GC_NULL)
       break;
-    if ((gc_word_t)ATOMIC_LOAD(&gc_threads.slots[i].used) == GC_FREE_FULL) {
-      if (ATOMIC_CAS_FULL(&gc_threads.slots[i].used, GC_FREE_FULL, GC_BUSY) != 0) {
+    if (gc == GC_FREE_FULL) {
+      if (ATOMIC_CAS_FULL(&gc_threads.slots[i].used, gc, GC_BUSY) != 0) {
         if (min == EPOCH_MAX)
           min = gc_compute_min(gc_current_epoch());
         gc_cleanup_thread(i, min);
         ATOMIC_STORE(&gc_threads.slots[i].used, gc_threads.slots[i].head == NULL ? GC_FREE_EMPTY : GC_FREE_FULL);
       }
-    }
+    } else
+      goto restart;
   }
 }
 
