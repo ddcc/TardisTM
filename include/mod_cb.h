@@ -55,7 +55,7 @@ extern "C" {
  * @return
  *   1 if the callbacks have been successfully registered, 0 otherwise.
  */
-int stm_on_commit(const void (*on_commit)(const struct stm_tx *tx, const void *arg), const void *arg);
+int stm_on_commit(const void (*on_commit)(const struct stm_tx *tx, const void *arg), const void *arg, const stm_op_t o);
 
 /**
  * Register an application-specific callback triggered when the current
@@ -70,7 +70,7 @@ int stm_on_commit(const void (*on_commit)(const struct stm_tx *tx, const void *a
  * @return
  *   1 if the callbacks have been successfully registered, 0 otherwise.
  */
-int stm_on_abort(const void (*on_abort)(const struct stm_tx *tx, const stm_tx_abort_t reason, const void *arg), const void *arg);
+int stm_on_abort(const void (*on_abort)(const struct stm_tx *tx, const stm_tx_abort_t reason, const void *arg), const void *arg, const stm_op_t o);
 
 # ifdef __cplusplus
 }

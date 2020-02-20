@@ -1,15 +1,14 @@
 include Makefile.common
 
 ########################################################################
-# TinySTM can be configured in many ways.  The main compilation options
-# are described below.  To read more easily through the code, you can
-# generate a source file stripped from most of the conditional
-# preprocessor directives using:
+# For information about TardisTM, refer to:
+# [PMAM-20] Daming D Chen, Phillip B Gibbons, Todd C Mowry. TardisTM:
+#   Incremental Repair for Transactional Memory.  In The 11th
+#   International Workshop on Programming Models and Applications for
+#   Multicores and Manycores (PMAM'20), February 22, 2020, San Diego, CA,
+#   USA. ACM, New York, NY, USA.
 #
-#   make src/stm.o.c
-#
-# For more details on the LSA algorithm and the design of TinySTM, refer
-# to:
+# For more details on design of TinySTM, refer to:
 #
 # [DISC-06] Torvald Riegel, Pascal Felber, and Christof Fetzer.  A Lazy
 #   Snapshot Algorithm with Eager Validation.  20th International
@@ -41,23 +40,22 @@ include Makefile.common
 #
 # Refer to [PPoPP-08] for more details.
 ########################################################################
-
-DEFINES += -DDESIGN=WRITE_BACK_ETL
+# DEFINES += -DDESIGN=WRITE_BACK_ETL
 # DEFINES += -DDESIGN=WRITE_BACK_ETL_VR
-# DEFINES += -DDESIGN=WRITE_BACK_CTL
+DEFINES += -DDESIGN=WRITE_BACK_CTL
 # DEFINES += -DDESIGN=WRITE_THROUGH
 # DEFINES += -DDESIGN=MODULAR
 
 ########################################################################
 # Several contention management strategies are available:
 #
-# CM_SUICIDE: immediately abort the transaction that detects the
+# CM_RESTART: immediately abort the transaction that detects the
 #   conflict.
 #
 # CM_AGGRESSIVE: immediately abort the other transaction.  This feature
 #   requires TRANSACTION_OPERATIONS.
 #
-# CM_DELAY: like CM_SUICIDE but wait until the contended lock that
+# CM_DELAY: like CM_RESTART but wait until the contended lock that
 #   caused the abort (if any) has been released before restarting the
 #   transaction.  The intuition is that the transaction will likely try
 #   again to acquire the same lock and might fail once more if it has
@@ -69,30 +67,46 @@ DEFINES += -DDESIGN=WRITE_BACK_ETL
 # CM_TIMESTAMP: kill youngest transaction.  This feature requires
 #   CONFLICT_TRACKING.
 #
-# CM_BACKOFF: like CM_SUICIDE but wait for a random delay before
+# CM_BACKOFF: like CM_RESTART but wait for a random delay before
 #   restarting the transaction.  The delay duration is chosen uniformly
 #   at random from a range whose size increases exponentially with every
 #   restart.
 #
 # CM_KARMA: kill transaction with least work done.  This feature requires
 #   CONFLICT_TRACKING.
+#
+# CM_MERGE: repair to resolve conflicts.  This feature requires
+#   READ_SET_ORDERED and MM_EPOCH_GC.  See [PMAM-20].
 ########################################################################
 
 # Pick one contention manager (CM)
-DEFINES += -DCM=CM_SUICIDE
+# DEFINES += -DCM=CM_RESTART
 # DEFINES += -DCM=CM_AGGRESSIVE
 # DEFINES += -DCM=CM_DELAY
 # DEFINES += -DCM=CM_TIMESTAMP
 # DEFINES += -DCM=CM_BACKOFF
 # DEFINES += -DCM=CM_KARMA
+DEFINES += -DCM=CM_MERGE -DMERGE_JIT -DMERGE_LOCK_CONFLICT
+
+########################################################################
+# Laziness of the conflict detection mechanism can be adjusted:
+#
+# LZ_ZERO: check for stale reads on each write.
+#
+# LZ_MERGE: check for stale reads on each write, depending on which
+#   merges are supported. Requires CM_MERGE and OPLOG_FULL.
+########################################################################
+
+# DEFINES += -DLAZINESS=LZ_ZERO
+DEFINES += -DLAZINESS=LZ_MERGE
 
 ########################################################################
 # Enable irrevocable mode (required for using the library with a
 # compiler).
 ########################################################################
 
-DEFINES += -DIRREVOCABLE_ENABLED
-# DEFINES += -UIRREVOCABLE_ENABLED
+# DEFINES += -DIRREVOCABLE_ENABLED
+DEFINES += -UIRREVOCABLE_ENABLED
 
 ########################################################################
 # Maintain detailed internal statistics.  Statistics are stored in
@@ -100,10 +114,10 @@ DEFINES += -DIRREVOCABLE_ENABLED
 # from disabling them.
 ########################################################################
 
-# DEFINES += -DTM_STATISTICS
-DEFINES += -UTM_STATISTICS
-# DEFINES += -DTM_STATISTICS2
-DEFINES += -UTM_STATISTICS2
+DEFINES += -DTM_STATISTICS
+# DEFINES += -UTM_STATISTICS
+DEFINES += -DTM_STATISTICS2
+# DEFINES += -UTM_STATISTICS2
 
 ########################################################################
 # Prevent duplicate entries in read/write sets when accessing the same
@@ -129,8 +143,8 @@ DEFINES += -UWAIT_YIELD
 # design.
 ########################################################################
 
-# DEFINES += -DUSE_BLOOM_FILTER
-DEFINES += -UUSE_BLOOM_FILTER
+DEFINES += -DUSE_BLOOM_FILTER
+# DEFINES += -UUSE_BLOOM_FILTER
 
 ########################################################################
 # Several memory management modes are available:
@@ -143,8 +157,29 @@ DEFINES += -UUSE_BLOOM_FILTER
 #   overhead from enabling this feature.
 ########################################################################
 
-DEFINES += -DMEMORY_MANAGEMENT=MM_NONE
-# DEFINES += -DMEMORY_MANAGEMENT=MM_EPOCH_GC
+# DEFINES += -DMEMORY_MANAGEMENT=MM_NONE
+DEFINES += -DMEMORY_MANAGEMENT=MM_EPOCH_GC
+
+########################################################################
+# Several data structures are available for the read and write sets:
+#
+# RW_ARRAY: Iterate directly over the underlying array.
+# RW_HASH_TABLE: Store data on the underlying array, but maintain a
+#   separate hash table for fast lookups.
+# RW_ADAPTIVE: Switch between direct lookups and maintaining a hash
+#	table depending on the size of the underlying array.
+########################################################################
+
+# DEFINES += -DREAD_SET=RW_ARRAY
+# DEFINES += -DREAD_SET=RW_HASH_TABLE
+DEFINES += -DREAD_SET=RW_ADAPTIVE
+# DEFINES += -DWRITE_SET=RW_ARRAY
+# DEFINES += -DWRITE_SET=RW_HASH_TABLE
+DEFINES += -DWRITE_SET=RW_ADAPTIVE
+# DEFINES += -DWRITE_SET_UNIQUE=RW_ARRAY
+# DEFINES += -DWRITE_SET_UNIQUE=RW_HASH_TABLE
+DEFINES += -DWRITE_SET_UNIQUE=RW_ADAPTIVE
+# DEFINES += -DRW_ADAPTIVE_THRESHOLD=64
 
 ########################################################################
 # Keep track of conflicts between transactions and notifies the
@@ -170,6 +205,57 @@ DEFINES += -UTRANSACTION_OPERATIONS
 
 # DEFINES += -DCONTENDED_LOCK_TRACKING
 DEFINES += -UCONTENDED_LOCK_TRACKING
+
+########################################################################
+# Track the address and value of read set entries.
+########################################################################
+
+DEFINES += -DREAD_SET_DETAILED
+# DEFINES += -UREAD_SET_DETAILED
+
+########################################################################
+# Allow user-defined tags in the read set.
+########################################################################
+
+DEFINES += -DREAD_SET_TAGGED
+# DEFINES += -UREAD_SET_TAGGED
+
+########################################################################
+# Allow arbitrary insertions in read set.
+########################################################################
+
+DEFINES += -DREAD_SET_ORDERED
+# DEFINES += -UREAD_SET_ORDERED
+
+########################################################################
+# Track the source of read set entries.
+########################################################################
+
+DEFINES += -DREAD_SET_SOURCE
+# DEFINES += -UREAD_SET_SOURCE
+
+########################################################################
+# Allow programs to log higher-level user-defined operations in
+# transactions, instead of traditional word-based reads/writes. This
+# feature requires READ_SET_ORDERED.
+#
+# OPLOG_NONE: Not enabled.
+# OPLOG_FULL: Record the sequence of operations, and for each operation,
+#   record reads, writes, input arguments, and output return value.
+#   This requires READ_SET_SOURCE. See [PMAM-20].
+########################################################################
+
+# DEFINES += -DOPERATION_LOGGING=OPLOG_NONE
+DEFINES += -DOPERATION_LOGGING=OPLOG_FULL
+
+########################################################################
+# Convert just-in-time merge conflicts to delayed merge conflicts when
+# no just-in-time merge handler is available, but a delayed
+# merge handler is available.
+########################################################################
+
+# DEFINES += -DDELAYED_JIT_MERGE
+DEFINES += -UDELAYED_JIT_MERGE
 
 ########################################################################
 # Allow transactions to read the previous version of locked memory
@@ -203,6 +289,12 @@ DEFINES += -ULOCK_IDX_SWAP
 DEFINES += -UDEBUG
 # DEFINES += -DDEBUG2
 DEFINES += -UDEBUG2
+# DEFINES += -DDEBUG_OP_LOG
+DEFINES += -UDEBUG_OP_LOG
+# DEFINES += -DDEBUG_MERGE
+DEFINES += -UDEBUG_MERGE
+# DEFINES += -DDEBUG_ABORT
+DEFINES += -UDEBUG_ABORT
 
 ########################################################################
 # Catch SIGBUS and SIGSEGV signals
@@ -211,7 +303,7 @@ DEFINES += -UDEBUG2
 # DEFINES += -DSIGNAL_HANDLER
 DEFINES += -USIGNAL_HANDLER
 
-# TODO Enable the construction of 32bit lib on 64bit environment 
+# TODO Enable the construction of 32bit lib on 64bit environment
 
 ########################################################################
 # Use COMPILER thread-local storage (TLS) support by default
@@ -236,8 +328,10 @@ DEFINES += -UUNIT_TX
 ########################################################################
 # Various default values can also be overridden:
 #
-# RW_SET_SIZE (default=4096): initial size of the read and write
-#   sets.  These sets will grow dynamically when they become full.
+# R_SET_SIZE/W_SET_SIZE/W_SET_UNIQUE_SIZE/OP_LOG_SIZE
+#   (default=8192/1024/1024/65536): initial size of the read and write
+#   sets, and operation log.  These will grow dynamically when they
+#   become full.
 #
 # LOCK_ARRAY_LOG_SIZE (default=20): number of bits used for indexes in
 #   the lock array.  The size of the array will be 2 to the power of
@@ -263,7 +357,10 @@ DEFINES += -UUNIT_TX
 #   environment variable of the same name.
 ########################################################################
 
-# DEFINES += -DRW_SET_SIZE=4096
+# DEFINES += -DR_SET_SIZE=8192
+# DEFINES += -DW_SET_SIZE=1024
+# DEFINES += -DW_SET_UNIQUE_SIZE=1024
+# DEFINES += -DOP_LOG_SIZE=65536
 # DEFINES += -DLOCK_ARRAY_LOG_SIZE=20
 # DEFINES += -DLOCK_SHIFT_EXTRA=2
 # DEFINES += -DMIN_BACKOFF=0x04UL
@@ -276,22 +373,34 @@ DEFINES += -UUNIT_TX
 
 # Replace textual values by constants for unifdef...
 D := $(DEFINES)
+D := $(D:TIME_BASED=0)
+D += -DTIME_BASED=0
 D := $(D:WRITE_BACK_ETL=0)
 D := $(D:WRITE_BACK_ETL_VR=1)
 D := $(D:WRITE_BACK_CTL=2)
 D := $(D:WRITE_THROUGH=3)
 D := $(D:MODULAR=4)
 D += -DWRITE_BACK_ETL=0 -DWRITE_BACK_ETL_VR=1 -DWRITE_BACK_CTL=2 -DWRITE_THROUGH=3 -DMODULAR=4
-D := $(D:CM_SUICIDE=0)
+D := $(D:CM_RESTART=0)
 D := $(D:CM_AGGRESSIVE=1)
 D := $(D:CM_DELAY=2)
 D := $(D:CM_TIMESTAMP=3)
 D := $(D:CM_BACKOFF=4)
 D := $(D:CM_KARMA=5)
-D += -DCM_SUICIDE=0 -CM_AGGRESSIVE=1 -CM_DELAY=2 -CM_TIMESTAMP=3 -DCM_BACKOFF=4 -DCM_KARMA=5
+D += -DCM_RESTART=0 -CM_AGGRESSIVE=1 -CM_DELAY=2 -CM_TIMESTAMP=3 -DCM_BACKOFF=4 -DCM_KARMA=5 -DCM_MERGE=6
 D := $(D:MM_NONE=0)
 D := $(D:MM_EPOCH_GC=1)
 D += -DMM_NONE=0 -DMM_EPOCH_GC=1
+D := $(D:RW_ARRAY=0)
+D := $(D:RW_HASH_TABLE=1)
+D := $(D:RW_ADAPTIVE=2)
+D += -DOPLOG_NONE=0 -DOPLOG_FULL=1
+D := $(D:OPLOG_NONE=0)
+D := $(D:OPLOG_FULL=1)
+D += -DRW_ARRAY=0 -DRW_HASH_TABLE=1 -DRW_ADAPTIVE=2
+D := $(D:LZ_ZERO=0)
+D := $(D:LZ_MERGE=1)
+D += -DLZ_ZERO=0 -DLZ_MERGE=1
 
 ifeq (,$(findstring -DMEMORY_MANAGEMENT=MM_NONE,$(DEFINES)))
   GC := $(SRCDIR)/gc.o
@@ -330,7 +439,7 @@ test:	$(TMLIB)
 abi:
 	$(MAKE) -C abi
 
-abi-%: 	
+abi-%:
 	$(MAKE) -C abi $(subst abi-,,$@)
 
 doc:

@@ -34,47 +34,10 @@
  *   2007-2014
  */
 
-/**
- * @mainpage TinySTM
- *
- * @section overview_sec Overview
- *
- *   TinySTM is a lightweight but efficient word-based STM
- *   implementation.  This distribution includes three versions of
- *   TinySTM: write-back (updates are buffered until commit time),
- *   write-through (updates are directly written to memory), and
- *   commit-time locking (locks are only acquired upon commit).  The
- *   version can be selected by editing the makefile, which documents
- *   all the different compilation options.
- *
- *   TinySTM compiles and runs on 32 or 64-bit architectures.  It was
- *   tested on various flavors of Unix, on Mac OS X, and on Windows
- *   using cygwin.  It comes with a few test applications, notably a
- *   linked list, a skip list, and a red-black tree.
- *
- * @section install_sec Installation
- *
- *   TinySTM requires the atomic_ops library, freely available from
- *   http://www.hpl.hp.com/research/linux/atomic_ops/.  A stripped-down
- *   version of the library is included in the TinySTM distribution.  If you
- *   wish to use another version, you must set the environment variable
- *   <c>LIBAO_HOME</c> to the installation directory of atomic_ops.
- *
- *   If your system does not support GCC thread-local storage, set the
- *   variable <c>TLS</c> to TLS_POSIX value into the Makefile.common.
- *
- *   To compile TinySTM libraries, execute <c>make</c> in the main
- *   directory.  To compile test applications, execute <c>make test</c>.
- *
- * @section contact_sec Contact
- *
- *   - E-mail : tinystm@tinystm.org
- *   - Web    : http://tinystm.org
- */
-
 #ifndef _STM_H_
 # define _STM_H_
 
+# include <ffi.h>
 # include <setjmp.h>
 # include <stdint.h>
 # include <stdio.h>
@@ -83,7 +46,7 @@
 /**
  * Version string
  */
-# define STM_VERSION                    "1.0.6"
+# define STM_VERSION                    "1.0.0"
 /**
  * Version number (times 100)
  */
@@ -102,6 +65,8 @@
 # endif /* __i386__ */
 
 # ifdef __cplusplus
+# include <type_traits>
+
 extern "C" {
 # endif
 
@@ -176,6 +141,16 @@ typedef union stm_tx_attr {
    * TODO Not yet implemented
    */
   /* unsigned int irrevocable : 2; */
+  /**
+   * Indicates that the transaction should use an ordered read set that supports
+   * random insertion.
+   */
+  unsigned int read_set_ordered : 1;
+  /**
+   * Indicates that the transaction should not overwrite freed objects to
+   * trigger conflicts.
+   */
+  unsigned int no_overwrite : 1;
   };
   /**
    * All transaction attributes represented as one integer.
@@ -183,6 +158,54 @@ typedef union stm_tx_attr {
    */
   int32_t attrs;
 } stm_tx_attr_t;
+
+typedef enum {
+  STAT_READ_SET_SIZE,
+  STAT_READ_SET_NB_ENTRIES,
+  STAT_WRITE_SET_SIZE,
+  STAT_WRITE_SET_NB_ENTRIES,
+  STAT_WRITE_SET_UNIQUE_SIZE,
+  STAT_WRITE_SET_UNIQUE_NB_ENTRIES,
+  STAT_OP_LOG_SIZE,
+  STAT_OP_LOG_USED,
+  STAT_RESTORE_SET_SIZE,
+  STAT_RESTORE_SET_NB_ENTRIES,
+  STAT_RESTORE_SET_WRITE_SIZE,
+  STAT_RESTORE_SET_WRITE_NB_ENTRIES,
+  STAT_READ_ONLY,
+  STAT_NB_EXTENSIONS,
+  STAT_NB_COMMITS,
+  STAT_NB_ABORTS,
+  STAT_NB_RELOCKS,
+  STAT_NB_RETRIES,
+  STAT_MAX_RETRIES,
+  STAT_AVG_ABORTS,
+  STAT_NB_RESTORES_CREATED,
+  STAT_NB_RESTORES_EXECUTED,
+  STAT_NB_MERGES_MANUAL,
+  STAT_NB_MERGES_REPLAY,
+  STAT_NB_MERGES_OK,
+  STAT_NB_MERGES_RETRY,
+  STAT_NB_REVERTED_READS,
+  STAT_NB_REVERTED_WRITES,
+  STAT_NB_REVERTED_OPS,
+  STAT_NB_READS,
+  STAT_NB_WRITES,
+  STAT_NB_ABORTS_1,
+  STAT_NB_ABORTS_2,
+  STAT_NB_ABORTS_REASON,
+  STAT_NB_ABORTS_LOCKED_READ,
+  STAT_NB_ABORTS_LOCKED_WRITE,
+  STAT_NB_ABORTS_VALIDATE_READ,
+  STAT_NB_ABORTS_VALIDATE_WRITE,
+  STAT_NB_ABORTS_VALIDATE_COMMIT,
+  STAT_NB_ABORTS_KILLED,
+  STAT_NB_ABORTS_INVALID_MEMORY,
+  STAT_LOCKED_READS_OK,
+  STAT_LOCKED_READS_FAILED,
+  STAT_WORK,
+  STAT_WORK_MERGE,
+} stm_stats_t;
 
 /**
  * Transaction conflict type.
@@ -204,7 +227,7 @@ typedef enum {
 } stm_tx_conflict_t;
 
 /* Sum type of read/write set entry */
-typedef uintptr_t entry_t;
+typedef unsigned int entry_t;
 
 /* Object representing a transaction read/write set conflict */
 typedef struct {
@@ -319,34 +342,205 @@ typedef enum {
    STM_DELAY = (1UL << 4),
 } stm_tx_policy_t;
 
+typedef enum stm_merge_policy
+#ifdef __cplusplus
+  : unsigned int
+#endif /* __cplusplus */
+{
+  /* Regular merge: Indicate that the merge function, if available, should be called to resolve the conflict. */
+  STM_MERGE_POLICY_FUNCTION,
+  /* Replay merge: Indicate that the STM should undo and replay the conflicting operation. */
+  STM_MERGE_POLICY_REPLAY,
+} stm_merge_policy_t;
+
+typedef enum stm_merge
+#ifdef __cplusplus
+  : unsigned int
+#endif /* __cplusplus */
+{
+  /* Merge: Indicate that the merge succeeded. */
+  STM_MERGE_OK,
+  /* Merge: Indicate that the merge succeeded and must recurse to the parent. */
+  STM_MERGE_OK_PARENT,
+  /* Merge: Used internally by stm_finish_merge(). */
+  STM_MERGE_OK_USER,
+  /* Merge: Indicate that the merge is not resolvable and abort. */
+  STM_MERGE_ABORT,
+  /* Merge: Indicate that the merge should be reattempted. */
+  STM_MERGE_RETRY,
+  /* Merge: Indicate that this conflict is not resolvable. */
+  STM_MERGE_UNSUPPORTED,
+} stm_merge_t;
+
+typedef union {
+  ffi_sarg sint;
+  ffi_arg uint;
+  double dbl;
+  void *ptr;
+} stm_union_t;
+
+typedef enum {
+  STM_FEATURE_OPLOG_FULL        = (1UL << 1),
+  STM_FEATURE_READ_SET_SOURCE   = (1UL << 2),
+  STM_FEATURE_MERGE             = (1UL << 3),
+} stm_features_t;
+
 /* Use index-based references to allow resize of underlying array */
 /* Use single element struct's for type uniqueness, instead of typedef */
-typedef struct { size_t idx; } stm_read_t;
-typedef struct { size_t idx; } stm_write_t;
+typedef struct stm_op_id { unsigned int idx; } stm_op_id_t;
+typedef struct stm_op { unsigned int idx; } stm_op_t;
+typedef struct stm_read { unsigned int idx; } stm_read_t;
+typedef struct stm_write { unsigned int idx; } stm_write_t;
 
-#define STM_BAD_IDX                     ((size_t)-1)
+#ifdef __cplusplus
+# define TYPES_COMPATIBLE(a, b)         std::is_same<std::remove_cv<decltype(a)>::type, std::remove_cv<b>::type>::value
+#else
+# define TYPES_COMPATIBLE(a, b)         __builtin_types_compatible_p(__typeof__(a), b)
+#endif /* __cplusplus */
+
+#define STM_BAD_IDX                     ((unsigned int)-2)
 #define STM_INVALID_READ                ((stm_read_t){ .idx = STM_BAD_IDX })
 #define STM_INVALID_WRITE               ((stm_write_t){ .idx = STM_BAD_IDX })
-#define STM_SAME_READ(a, b)             (__builtin_types_compatible_p(typeof(a), stm_read_t) && __builtin_types_compatible_p(typeof(b), stm_read_t) && (a).idx == (b).idx)
-#define STM_SAME_WRITE(a, b)            (__builtin_types_compatible_p(typeof(a), stm_write_t) && __builtin_types_compatible_p(typeof(b), stm_write_t) && (a).idx == (b).idx)
-#define STM_VALID_READ(a)               (__builtin_types_compatible_p(typeof(a), stm_read_t) && !STM_SAME_READ((a), STM_INVALID_READ))
-#define STM_VALID_WRITE(a)              (__builtin_types_compatible_p(typeof(a), stm_write_t) && !STM_SAME_WRITE((a), STM_INVALID_WRITE))
+#define STM_INVALID_OP                  ((stm_op_t){ .idx = STM_BAD_IDX })
+#define STM_INVALID_OPID                ((stm_op_id_t){ .idx = STM_BAD_IDX })
+#define STM_SAME_READ(a, b)             (TYPES_COMPATIBLE(a, stm_read_t) && TYPES_COMPATIBLE(b, stm_read_t) && (a).idx == (b).idx)
+#define STM_SAME_WRITE(a, b)            (TYPES_COMPATIBLE(a, stm_write_t) && TYPES_COMPATIBLE(b, stm_write_t) && (a).idx == (b).idx)
+#define STM_SAME_OPID(a, b)             (TYPES_COMPATIBLE(a, stm_op_id_t) && TYPES_COMPATIBLE(b, stm_op_id_t) && (a).idx == (b).idx)
+#define STM_SAME_OP(a, b)               (TYPES_COMPATIBLE(a, stm_op_t) && TYPES_COMPATIBLE(b, stm_op_t) && (a).idx == (b).idx)
+#define STM_VALID_READ(a)               (TYPES_COMPATIBLE(a, stm_read_t) && !STM_SAME_READ(a, STM_INVALID_READ))
+#define STM_VALID_WRITE(a)              (TYPES_COMPATIBLE(a, stm_write_t) && !STM_SAME_WRITE(a, STM_INVALID_WRITE))
+#define STM_VALID_OP(a)                 (TYPES_COMPATIBLE(a, stm_op_t) && !STM_SAME_OP(a, STM_INVALID_OP))
+#define STM_VALID_OPID(a)               (TYPES_COMPATIBLE(a, stm_op_id_t) && !STM_SAME_OPID(a, STM_INVALID_OPID))
 
 #define ENTRY_INVALID                   (STM_BAD_IDX)
 #define ENTRY_VALID(c)                  (c != ENTRY_INVALID)
 #define ENTRY_GET_READ(c)               ((stm_read_t){ .idx = (c) })
 #define ENTRY_GET_WRITE(c)              ((stm_write_t){ .idx = (c) })
 
+typedef struct stm_merge_context {
+  /* Log entry for the current operation being merged */
+  stm_op_t current;
+  /* Log entry for the previous operation being merged */
+  stm_op_t previous;
+  /* Address of the conflict */
+  const void *addr;
+  /* Conflict type  */
+  int leaf;
+  struct {
+    /* An object containing the read/write set entries (valid only when 'leaf' == 1) */
+    const stm_conflict_t *entries;
+    /* The old and new return values from a merged child operation (valid only when 'leaf' == 0) */
+    struct {
+      stm_union_t previous_result;
+      stm_union_t result;
+    };
+  } conflict;
+  /* Position to insert new read set entries after */
+  stm_read_t read;
+  /* Return value from the original or replayed operation. Modifications to this value will update the operation log with the new return value, and trigger a recursive merge, with the new value passed as conflict.result.current. */
+  stm_union_t rv;
+} stm_merge_context_t;
+
+/* Merge function callback type. When a conflict is detected, this function is called, with the conflict passed in 'params' (see 'stm_merge_context_t'). It should return an appropriate merge result (see 'stm_merge_t'). If the result is STM_MERGE_OK, and 'rv' is modified, the merge recurses to the parent of the current operation, and it becomes the new value of 'conflict.result'.
+
+During a merge, the scope of re-execution is set to the operation log entry 'params->current'. With commit-time locking, each read will check for the presence of a previous read (potentially stale) in this scope, and if it exists, will return the corresponding value. Otherwise, it will check for the presence of a previous write in this scope, and if it exists, will return the corresponding value. If neither a previous read nor a previous write exist, then a new read from memory will be recorded in this scope. */
+typedef stm_merge_t (*stm_merge_cb_t)(stm_merge_context_t *params);
+
 /* ################################################################### *
  * FUNCTIONS
  * ################################################################### */
+
+const stm_features_t stm_get_features() _CALLCONV;
+
+/* Define a new operation named 's', implemented by a function 'f' with type 'fi'. The return value is the opcode that will identify it in the operation log. This function is not thread safe. The 'policy[0]' variable is used to determine what type of delayed merge is performed upon encountering a conflict, before executing 'delayed'. Likewise, 'policy[1]' is used to determine what type of JIT merge is performed. */
+const stm_op_id_t stm_new_opcode(const char *s, const ffi_cif *fi, void (*f)(void), const stm_merge_cb_t delayed, const stm_merge_policy_t policy[2]) _CALLCONV;
+
+/* Log execution begin of the operation with opcode 'op' and arguments '...', and with an optional JIT merge function 'jit'. This merge function takes precedence over that defined in stm_new_op(), if present. */
+int stm_begin_op(const stm_op_id_t op, const stm_merge_cb_t jit, ...) _CALLCONV;
+
+/* Log execution end of the operation with opcode 'op' and return value 'ret'. */
+int stm_end_op(const stm_op_id_t op, const void *ret) _CALLCONV;
+
+/* Finish the merge. Must be called before jumping back into the original function using goto. */
+int stm_finish_merge() _CALLCONV;
+
+/* When merging, check whether address 'addr' was read/written in the scope of the current operation. */
+const stm_read_t stm_did_load(const stm_word_t *addr) _CALLCONV;
+const stm_write_t stm_did_store(stm_word_t *addr) _CALLCONV;
+
+/* When merging, get the previous value that was read/written from/to address 'addr', and store it in 'value'. */
+int stm_load_value(const stm_read_t r, stm_word_t *value) _CALLCONV;
+int stm_store_value(const stm_write_t w, stm_word_t *value) _CALLCONV;
+
+/* When merging, update the value of the read 'r' in the scope of the current operation as if the operation were restarted. Returns the updated read value at word granularity. */
+int stm_load_update(const stm_read_t r, stm_word_t *value) _CALLCONV;
+
+/* When merging, revert any reads to the read 'r' in the scope of the current operation. */
+int stm_undo_load(const stm_read_t r) _CALLCONV;
+int stm_undo_load_tx(struct stm_tx *tx, const stm_read_t r) _CALLCONV;
+
+/* When merging, update the value of the write 'w', in the scope of the current operation as if the operation were restarted. */
+int stm_store_update(const stm_write_t w, const stm_word_t v) _CALLCONV;
+int stm_store2_update(const stm_write_t w, const stm_word_t v, const stm_word_t mask) _CALLCONV;
+
+/* When merging, revert any writes to write 'w' in the scope of the entire transaction. Note that because writes are not versioned at the per-operation level, this will affect all operations in the current transaction. */
+int stm_undo_store(const stm_write_t w) _CALLCONV;
+int stm_undo_store_tx(struct stm_tx *tx, const stm_write_t w) _CALLCONV;
+
+/* When merging, get/set the tag stored with the opaque read 'r'. */
+uintptr_t stm_get_load_tag(const stm_read_t r) _CALLCONV;
+int stm_set_load_tag(const stm_read_t r, uintptr_t tag) _CALLCONV;
+
+/* When merging, return the opcode from the opaque read/write/operation log 'r'/'w'/'o'. */
+const stm_op_id_t stm_get_op_opcode(const stm_op_t o) _CALLCONV;
+const stm_op_id_t stm_get_load_opcode(const stm_read_t r) _CALLCONV;
+const stm_op_id_t stm_get_store_opcode(const stm_write_t w) _CALLCONV;
+
+/* When merging, return the read/write address from the opaque read/write 'r'/'w'/'wu'. */
+const stm_word_t *stm_get_load_addr(const stm_read_t r) _CALLCONV;
+const stm_word_t *stm_get_store_addr(const stm_write_t w) _CALLCONV;
+
+/* When merging, return the corresponding operation log entry for the opaque read/write 'r'/'w', or the current operation from before the merge. */
+const stm_op_t stm_get_current_op() _CALLCONV;
+const stm_op_t stm_get_load_op(const stm_read_t r) _CALLCONV;
+const stm_op_t stm_get_store_op(const stm_write_t w) _CALLCONV;
+
+/* When merging, return the source of the opaque read 'r'. */
+const stm_write_t stm_get_load_source(const stm_read_t r);
+
+/* When merging, return the next opaque read of 'r', optionally with the same address and operation. */
+const stm_read_t stm_get_load_next(const stm_read_t r, const int op, const int addr);
+
+/* When merging, return the next opaque write of 'w', optionally with the same address. */
+const stm_write_t stm_get_store_next(const stm_write_t w, const int addr);
+
+/* When merging, return the last opaque read from the same operation as 'r'. */
+const stm_read_t stm_get_load_last(const stm_read_t r);
+
+/* When merging, store a pointer to the arguments of the operation log entry 'o' in 'args'. Returns number of arguments or -1 on error. */
+ssize_t stm_get_op_args(const stm_op_t o, const stm_union_t *args[]) _CALLCONV;
+
+/* When merging, store a pointer to the return value of the operation log entry 'o' in 'ret'. Returns the libffi type of the return value. */
+unsigned short stm_get_op_ret(const stm_op_t o, stm_union_t *ret) _CALLCONV;
+
+/* When merging, revert any loads/stores/memory operations performed by operation log entry 'o'. */
+int stm_clear_op(const stm_op_t o, int read, int write, int mem) _CALLCONV;
+
+/* When merging, revert the subtree rooted at operation log entry 'o'. */
+int stm_undo_op(const stm_op_t o) _CALLCONV;
+
+/* When merging, revert any subtrees of the operation log entry 'o' with opcode 'arg'. */
+int stm_undo_op_descendants(const stm_op_t o, const stm_op_id_t arg) _CALLCONV;
+
+/* When merging, find the first descendant of the operation log entry 'o' with opcode 'arg'. */
+const stm_op_t stm_find_op_descendant(const stm_op_t o, const stm_op_id_t arg) _CALLCONV;
 
 /**
  * Initialize the STM library.  This function must be called once, from
  * the main thread, before any access to the other functions of the
  * library.
  */
-void stm_init(void) _CALLCONV;
+void stm_init() _CALLCONV;
 
 /**
  * Clean up the STM library.  This function must be called once, from
@@ -414,9 +608,15 @@ int stm_commit_tx(struct stm_tx *tx) _CALLCONV;
  * @param abort_reason
  *   Reason for aborting the transaction.
  */
-void stm_abort(stm_tx_abort_t abort_reason) _CALLCONV;
-void stm_abort_tx(struct stm_tx *tx, stm_tx_abort_t abort_reason) _CALLCONV;
+void stm_abort(unsigned int abort_reason) _CALLCONV;
+void stm_abort_tx(struct stm_tx *tx, unsigned int abort_reason) _CALLCONV;
 //@}
+
+/* Abort a transaction, but without restarting it */
+void stm_stop(unsigned int abort_reason) _CALLCONV;
+
+/* Force transaction revalidation */
+int stm_revalidate();
 
 //@{
 /**
@@ -431,9 +631,13 @@ void stm_abort_tx(struct stm_tx *tx, stm_tx_abort_t abort_reason) _CALLCONV;
  * @return
  *   Value read from the specified address.
  */
-stm_word_t stm_load(const volatile stm_word_t *addr) _CALLCONV;
-stm_word_t stm_load_tx(struct stm_tx *tx, const volatile stm_word_t *addr) _CALLCONV;
+stm_word_t stm_load(const stm_word_t *addr) _CALLCONV;
+stm_word_t stm_load_tx(struct stm_tx *tx, const stm_word_t *addr) _CALLCONV;
 //@}
+
+/* Perform a transactional load like stm_load(), but store an additional 'tag' with this read. */
+stm_word_t stm_load_tag(const stm_word_t *addr, const uintptr_t tag) _CALLCONV;
+stm_word_t stm_load_tag_tx(struct stm_tx *tx, const stm_word_t *addr, const uintptr_t tag) _CALLCONV;
 
 //@{
 /**
@@ -447,8 +651,8 @@ stm_word_t stm_load_tx(struct stm_tx *tx, const volatile stm_word_t *addr) _CALL
  * @param value
  *   Value to be written.
  */
-void stm_store(volatile stm_word_t *addr, const stm_word_t value) _CALLCONV;
-void stm_store_tx(struct stm_tx *tx, volatile stm_word_t *addr, const stm_word_t value) _CALLCONV;
+void stm_store(stm_word_t *addr, const stm_word_t value) _CALLCONV;
+void stm_store_tx(struct stm_tx *tx, stm_word_t *addr, const stm_word_t value) _CALLCONV;
 //@}
 
 //@{
@@ -467,8 +671,8 @@ void stm_store_tx(struct stm_tx *tx, volatile stm_word_t *addr, const stm_word_t
  * @param mask
  *   Mask specifying the bits to be written.
  */
-void stm_store2(volatile stm_word_t *addr, stm_word_t value, stm_word_t mask) _CALLCONV;
-void stm_store2_tx(struct stm_tx *tx, volatile stm_word_t *addr, stm_word_t value, stm_word_t mask) _CALLCONV;
+void stm_store2(stm_word_t *addr, stm_word_t value, stm_word_t mask) _CALLCONV;
+void stm_store2_tx(struct stm_tx *tx, stm_word_t *addr, stm_word_t value, stm_word_t mask) _CALLCONV;
 //@}
 
 //@{
@@ -571,8 +775,8 @@ stm_tx_attr_t stm_get_attributes_tx(const struct stm_tx *tx) _CALLCONV;
  * @return
  *   1 upon success, 0 otherwise.
  */
-int stm_get_stats(const char *name, void *val) _CALLCONV;
-int stm_get_stats_tx(const struct stm_tx *tx, const char *name, void *val) _CALLCONV;
+int stm_get_stats(const stm_stats_t name, void *val) _CALLCONV;
+int stm_get_stats_tx(const struct stm_tx *tx, const stm_stats_t name, void *val) _CALLCONV;
 //@}
 
 /**
@@ -683,7 +887,7 @@ int stm_register(void (* const on_thread_init)(struct stm_tx *tx, const void *ar
  * @return
  *   Value read from the specified address.
  */
-stm_word_t stm_unit_load(volatile stm_word_t *addr, stm_word_t *timestamp) _CALLCONV;
+stm_word_t stm_unit_load(stm_word_t *addr, stm_word_t *timestamp) _CALLCONV;
 
 /**
  * Transaction-safe store.  Write a word-sized value to the specified
@@ -706,7 +910,7 @@ stm_word_t stm_unit_load(volatile stm_word_t *addr, stm_word_t *timestamp) _CALL
  * @return
  *   1 if value has been written, 0 otherwise.
  */
-int stm_unit_store(volatile stm_word_t *addr, stm_word_t value, stm_word_t *timestamp) _CALLCONV;
+int stm_unit_store(stm_word_t *addr, stm_word_t value, stm_word_t *timestamp) _CALLCONV;
 
 /**
  * Transaction-safe store.  Write a value to the specified memory
@@ -733,7 +937,7 @@ int stm_unit_store(volatile stm_word_t *addr, stm_word_t value, stm_word_t *time
  * @return
  *   1 if value has been written, 0 otherwise.
  */
-int stm_unit_store2(volatile stm_word_t *addr, stm_word_t value, stm_word_t mask, stm_word_t *timestamp) _CALLCONV;
+int stm_unit_store2(stm_word_t *addr, stm_word_t value, stm_word_t mask, stm_word_t *timestamp) _CALLCONV;
 
 //@{
 /**

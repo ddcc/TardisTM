@@ -1,14 +1,10 @@
 # Debug/optimization flags (optimized by default)
 ifeq ($(CFG),debug)
-  CFLAGS += -O0 -ggdb3
+  CFLAGS += -O0 -ggdb3 -fno-omit-frame-pointer
 else
-  CFLAGS += -O2
-  CFLAGS += -march=native
+  CFLAGS += -O2 -march=native -ggdb3
 endif
 
-# Disable strict aliasing 
-# TODO: no-strict-aliasing removes some optimizations but seems required for correctness. need more investigation.
-CFLAGS += -fno-strict-aliasing
 # Disable stack smashing protector (__stack_chk_fail)
 CFLAGS += -fno-stack-protector
 # Enable all warnings but unsused functions and labels

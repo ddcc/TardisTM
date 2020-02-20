@@ -1,5 +1,6 @@
 # Compiled objects
 *.o
+*.do
 *.so
 *.a
 # Generated documentation

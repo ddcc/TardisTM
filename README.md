@@ -1,53 +1,17 @@
-TinySTM
+TardisTM
 =======
 
 OVERVIEW
 --------
 
-TinySTM is a lightweight but efficient word-based STM implementation.
-This distribution includes three versions of TinySTM: write-back
-(updates are buffered until commit time), write-through (updates are
-directly written to memory), and commit-time locking (locks are only
-acquired upon commit).  The version can be selected by editing the
-makefile, which documents all the different compilation options.
+TardisTM implements support for transaction repair on top of [TinySTM](https://github.com/patrickmarlier/tinystm). Different variants can be built by modifying the Makefile. For more information, see the [paper](https://www.dcddcc.com/docs/2020_paper_tardistm.pdf).
 
-TinySTM compiles and runs on 32 or 64-bit architectures.  It was tested
-on various flavors of Unix, on Mac OS X, and on Windows using cygwin.
-It comes with a few test applications, notably a linked list, a skip
-list, and a red-black tree.
-
+Information about the repair interface is in the [include/stm.h](https://github.com/ddcc/tardisTM/tree/master/include/stm.h) file, where repair is referred to as merge. To see pre-written abstract operations and repair handlers, refer to our [annotated STAMP repository](https://github.com/ddcc/stamp).
 
 INSTALLATION
 ------------
 
-TinySTM requires the 'atomic\_ops' library, freely available from
-[www.hpl.hp.com](http://www.hpl.hp.com/research/linux/atomic_ops/).
-A stripped-down version of the library is included in the TinySTM 
-distribution.  If you wish to use another version, you must set the 
-environment variable LIBAO\_HOME to the installation directory of
-'atomic\_ops'.
+Like TinySTM, TardisTM requires the 'atomic\_ops' library, which must be installed separately. To compile, choose a pre-defined variant below, and execute `make -f <variant>`:
 
-If your system does not support GCC thread-local storage, modify the
-TLS parameter in the 'Makefile' file.
-
-To compile TinySTM libraries, execute 'make' in the main directory.  To
-compile test applications, execute 'make test'.  To check the compiled
-library, execute 'make check'. 'make clean' will remove all compiled
-files.
-To compile the TinySTM GCC compatible library, execute 'make abi-gcc'.
-To compile test applications, execute 'make abi-gcc-test'.
-
-
-CONTACT
--------
-
-* E-mail : [tinystm@tinystm.org](mailto:tinystm@tinystm.org)
-* Web    : [http://tinystm.org](http://tinystm.org) and
- [http://www.tmware.org](http://www.tmware.org)
-
-
-ACKNOWLEDGEMENT
----------------
-
-This library was supported by the European research consortium
-[VELOX](http://www.velox-project.eu).
+* `Makefile.repair`: TardisTM with all repairs enabled.
+* `Makefile.restart`: TardisTM without any repair or tracking functionality.

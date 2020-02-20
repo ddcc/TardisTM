@@ -44,6 +44,9 @@
 #include "mod_cb.h"
 #include "mod_mem.h"
 #include "mod_log.h"
+#ifdef TM_STATISTICS
+# include "mod_stats.h"
+#endif /* TM_STATISTICS */
 #include "wrappers.h"
 #ifdef TM_DTMC
 # include "dtmc/tanger-stm-internal.h"
@@ -64,6 +67,9 @@ extern void _ITM_CALL_CONVENTION _ITM_siglongjmp(int val, sigjmp_buf env) __attr
 # include "gcc/alloc_cpp.c"
 #endif
 #include "mod_log.c"
+#ifdef TM_STATISTICS
+# include "mod_stats.c"
+#endif /* TM_STATISTICS */
 #include "wrappers.c"
 #if MEMORY_MANAGEMENT != MM_NONE
 # include "gc.c"
@@ -99,8 +105,8 @@ enum {
 
 static union {
   struct {
-    volatile unsigned long status;
-    volatile unsigned long thread_counter;
+    unsigned long status;
+    unsigned long thread_counter;
   };
   uint8_t padding[64]; /* TODO should be cacheline related */
 } __attribute__((aligned(64))) global_abi = {{.status = ABI_NOT_INITIALIZED, .thread_counter = 0 }};
@@ -114,22 +120,6 @@ typedef struct {
   void *stack_addr_high;
 #endif /* STACK_CHECK */
 } thread_abi_t;
-
-/* Statistics */
-typedef struct stats {
-  int thread_id;
-  unsigned long nb_commits;
-  unsigned long nb_aborts;
-  double nb_retries_avg;
-  unsigned long nb_retries_min;
-  unsigned long nb_retries_max;
-
-  struct stats * next;
-} stats_t;
-
-/* Thread statistics managed as a linked list */
-/* TODO align + padding */
-stats_t * thread_stats = NULL;
 
 
 /* ################################################################### *
@@ -240,35 +230,6 @@ abi_exit_thread(struct stm_tx *tx)
 {
   if (tx == NULL)
     return;
-#if 0
-  /* FIXME disable during refactoring */
-  if (getenv("ITM_STATISTICS") != NULL) {
-    stats_t * ts = malloc(sizeof(stats_t));
-#ifdef TLS
-    thread_abi_t *t = thread_abi;
-#else /* ! TLS */
-    thread_abi_t *t = pthread_getspecific(thread_abi);
-#endif /* ! TLS */
-    ts->thread_id = t->thread_id;
-    stm_get_local_stats("nb_commits", &ts->nb_commits);
-    stm_get_local_stats("nb_aborts", &ts->nb_aborts);
-    stm_get_local_stats("nb_retries_avg", &ts->nb_retries_avg);
-    stm_get_local_stats("nb_retries_min", &ts->nb_retries_min);
-    stm_get_local_stats("nb_retries_max", &ts->nb_retries_max);
-    /* Register thread-statistics to global */
-    do {
-	ts->next = (stats_t *)ATOMIC_LOAD(&thread_stats);
-    } while (ATOMIC_CAS_FULL(&thread_stats, ts->next, ts) == 0);
-    /* ts will be freed on _ITM_finalizeProcess. */
-#ifdef TLS
-    thread_abi = NULL;
-#else /* ! TLS */
-    pthread_setspecific(thread_abi, NULL);
-#endif
-    /* Free thread_abi_t structure. */
-    free(t);
-  }
-#endif
 
   stm_exit_thread();
 
@@ -281,16 +242,22 @@ abi_exit_thread(struct stm_tx *tx)
 static INLINE void
 abi_init(void)
 {
+  unsigned long status;
   /* thread safe */
 reload:
-  if (ATOMIC_LOAD_ACQ(&global_abi.status) == ABI_NOT_INITIALIZED) {
-    if (ATOMIC_CAS_FULL(&global_abi.status, ABI_NOT_INITIALIZED, ABI_INITIALIZING) != 0) {
+  if ((status = ATOMIC_LOAD_ACQ(&global_abi.status)) == ABI_NOT_INITIALIZED) {
+    if (ATOMIC_CAS_FULL(&global_abi.status, status, ABI_INITIALIZING) != 0) {
       /* TODO temporary to be sure to use tinySTM */
-      printf("TinySTM-ABI v%s.\n", _ITM_libraryVersion());
+      printf("TardisTM-ABI v%s.\n", _ITM_libraryVersion());
       atexit((void (*)(void))(_ITM_finalizeProcess));
 
+# ifdef TM_STATISTICS
+      if (getenv("ITM_STATISTICS") != NULL || getenv("TM_STATS") != NULL)
+        setenv("TM_STATISTICS", "1", 0);
+# endif /* TM_STATISTICS */
+
       /* TinySTM initialization */
-      stm_init();
+      stm_init(NULL);
       mod_mem_init();
 # ifdef TM_GCC
       mod_alloc_cpp();
@@ -315,55 +282,19 @@ static INLINE void
 abi_exit(void)
 {
   TX_GET;
-  char * statistics;
+  unsigned long status;
 
   abi_exit_thread(tx);
 
   /* Ensure thread safety */
 reload:
-  if (ATOMIC_LOAD_ACQ(&global_abi.status) == ABI_INITIALIZED) {
-    if (ATOMIC_CAS_FULL(&global_abi.status, ABI_INITIALIZED, ABI_FINALIZING) == 0)
+  if ((status = ATOMIC_LOAD_ACQ(&global_abi.status)) == ABI_INITIALIZED) {
+    if (ATOMIC_CAS_FULL(&global_abi.status, status, ABI_FINALIZING) == 0)
       goto reload;
   } else {
     return;
   }
 
-  if ((statistics = getenv("ITM_STATISTICS")) != NULL) {
-    FILE * f;
-    int i = 0;
-    stats_t * ts;
-    if (statistics[0] == '-')
-      f = stdout;
-    else if ((f = fopen("itm.log", "w")) == NULL) {
-      fprintf(stderr, "can't open itm.log for writing\n");
-      goto finishing;
-    }
-    fprintf(f, "STATS REPORT\n");
-    fprintf(f, "THREAD TOTALS\n");
-
-    while (1) {
-      do {
-        ts = (stats_t *)ATOMIC_LOAD(&thread_stats);
-	if (ts == NULL)
-	  goto no_more_stat;
-      } while(ATOMIC_CAS_FULL(&thread_stats, ts, ts->next) == 0);
-      /* Skip stats if not a transactional thread */
-      if (ts->nb_commits == 0)
-        continue;
-      fprintf(f, "Thread %-4i                : %12s %12s %12s %12s\n", i, "Min", "Mean", "Max", "Total");
-      fprintf(f, "  Transactions             : %12lu\n", ts->nb_commits);
-      fprintf(f, "  %-25s: %12lu %12.2f %12lu %12lu\n", "Retries", ts->nb_retries_min, ts->nb_retries_avg, ts->nb_retries_max, ts->nb_aborts);
-      fprintf(f,"\n");
-      /* Free the thread stats structure */
-      free(ts);
-      i++;
-    }
-no_more_stat:
-    if (f != stdout) {
-      fclose(f);
-    }
-  }
-finishing:
   stm_exit();
 
   ATOMIC_STORE(&global_abi.status, ABI_NOT_INITIALIZED);
@@ -693,14 +624,14 @@ void _ITM_CALL_CONVENTION _ITM_commitTransactionEH(void *exc_ptr)
 #define TM_LOAD(F, T, WF, WT) \
   T _ITM_CALL_CONVENTION F(TX_ARGS const T *addr) \
   { \
-    return (WT)WF((volatile WT *)addr); \
+    return (WT)WF((WT *)addr); \
   }
 
 #define TM_LOAD_GENERIC(F, T) \
   T _ITM_CALL_CONVENTION F(TX_ARGS const T *addr) \
   { \
     union { T d; uint8_t s[sizeof(T)]; } c; \
-    stm_load_bytes((volatile uint8_t *)addr, c.s, sizeof(T)); \
+    stm_load_bytes((uint8_t *)addr, c.s, sizeof(T)); \
     return c.d; \
   }
 
@@ -714,13 +645,13 @@ not enough because if we abort and restore -> stack can be corrupted
   void _ITM_CALL_CONVENTION F(TX_ARGS const T *addr, T val) \
   { \
     if (on_stack(addr)) *((T*)addr) = val; \
-    else WF((volatile WT *)addr, (WT)val); \
+    else WF((WT *)addr, (WT)val); \
   }
 #else /* !STACK_CHECK */
 #define TM_STORE(F, T, WF, WT) \
   void _ITM_CALL_CONVENTION F(TX_ARGS const T *addr, T val) \
   { \
-    WF((volatile WT *)addr, (WT)val); \
+    WF((WT *)addr, (WT)val); \
   }
 #endif /* !STACK_CHECK */
 
@@ -729,7 +660,7 @@ not enough because if we abort and restore -> stack can be corrupted
   { \
     union { T d; uint8_t s[sizeof(T)]; } c; \
     c.d = val; \
-    stm_store_bytes((volatile uint8_t *)addr, c.s, sizeof(T)); \
+    stm_store_bytes((uint8_t *)addr, c.s, sizeof(T)); \
   }
 
 #define TM_LOG(F, T, WF, WT) \
@@ -747,13 +678,13 @@ not enough because if we abort and restore -> stack can be corrupted
 #define TM_STORE_BYTES(F) \
   void _ITM_CALL_CONVENTION F(TX_ARGS void *dst, const void *src, size_t size) \
   { \
-    stm_store_bytes((volatile uint8_t *)dst, (uint8_t *)src, size); \
+    stm_store_bytes((uint8_t *)dst, (uint8_t *)src, size); \
   }
 
 #define TM_LOAD_BYTES(F) \
   void _ITM_CALL_CONVENTION F(TX_ARGS void *dst, const void *src, size_t size) \
   { \
-    stm_load_bytes((volatile uint8_t *)src, (uint8_t *)dst, size); \
+    stm_load_bytes((uint8_t *)src, (uint8_t *)dst, size); \
   }
 
 #define TM_LOG_BYTES(F) \
@@ -767,13 +698,13 @@ not enough because if we abort and restore -> stack can be corrupted
   void _ITM_CALL_CONVENTION F(TX_ARGS void *dst, int val, size_t count) \
   { \
     if (on_stack(dst)) memset(dst, val, count); \
-    else stm_set_bytes((volatile uint8_t *)dst, val, count); \
+    else stm_set_bytes((uint8_t *)dst, val, count); \
   }
 #else /* !STACK_CHECK */
 #define TM_SET_BYTES(F) \
   void _ITM_CALL_CONVENTION F(TX_ARGS void *dst, int val, size_t count) \
   { \
-    stm_set_bytes((volatile uint8_t *)dst, val, count); \
+    stm_set_bytes((uint8_t *)dst, val, count); \
   }
 #endif /* !STACK_CHECK */
 
@@ -783,17 +714,17 @@ not enough because if we abort and restore -> stack can be corrupted
   { \
     uint8_t *buf = (uint8_t *)alloca(size); \
     if (on_stack(src)) memcpy(buf, src, size); \
-    stm_load_bytes((volatile uint8_t *)src, buf, size); \
+    stm_load_bytes((uint8_t *)src, buf, size); \
     if (on_stack(dst)) memcpy(dst, buf, size); \
-    else stm_store_bytes((volatile uint8_t *)dst, buf, size); \
+    else stm_store_bytes((uint8_t *)dst, buf, size); \
   }
 #else /* !STACK_CHECK */
 #define TM_COPY_BYTES(F) \
   void _ITM_CALL_CONVENTION F(TX_ARGS void *dst, const void *src, size_t size) \
   { \
     uint8_t *buf = (uint8_t *)alloca(size); \
-    stm_load_bytes((volatile uint8_t *)src, buf, size); \
-    stm_store_bytes((volatile uint8_t *)dst, buf, size); \
+    stm_load_bytes((uint8_t *)src, buf, size); \
+    stm_store_bytes((uint8_t *)dst, buf, size); \
   }
 #endif /* !STACK_CHECK */
 
@@ -802,14 +733,14 @@ not enough because if we abort and restore -> stack can be corrupted
   { \
     uint8_t *buf = (uint8_t *)alloca(size); \
     memcpy(buf, src, size); \
-    stm_store_bytes((volatile uint8_t *)dst, buf, size); \
+    stm_store_bytes((uint8_t *)dst, buf, size); \
   }
 
 #define TM_COPY_BYTES_RT_WN(F) \
   void _ITM_CALL_CONVENTION F(TX_ARGS void *dst, const void *src, size_t size) \
   { \
     uint8_t *buf = (uint8_t *)alloca(size); \
-    stm_load_bytes((volatile uint8_t *)src, buf, size); \
+    stm_load_bytes((uint8_t *)src, buf, size); \
     memcpy(dst, buf, size); \
   }
 
